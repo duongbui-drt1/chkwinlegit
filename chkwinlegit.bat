@@ -4,7 +4,7 @@
 Clear-Host
 
 # Version & Credit info
-$version = "C.01"
+$version = "C.02"
 $credit = "Made by Duli Software & Antigravity"
 
 # Set console title
@@ -528,12 +528,74 @@ Write-Host ""
 # 5. FINAL ASSESSMENT
 Write-Host "[5] ĐÁNH GIÁ CHUNG HỆ THỐNG / FINAL ASSESSMENT" -ForegroundColor Blue -Bold
 Write-Host "--------------------------------------------------------------------------------"
+Write-Host " Báo cáo chi tiết các thành phần hệ thống:"
 
+# 5.1 Check domain join status
 $isDomainJoined = $false
 $compSystem = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
 if ($compSystem) {
     $isDomainJoined = $compSystem.PartOfDomain
 }
+
+# 5.2 Render component statuses
+# Windows status
+Write-Host "  * Hệ thống Windows : " -NoNewline
+if ($winKms -or $winGuidKms -or ($channel -like "*KMSCLIENT*" -and -not $isDomainJoined -and $tamperDetected)) {
+    Write-Host "PHÁT HIỆN CAN THIỆP (KMS/KMS38/Bypass)" -ForegroundColor Red -Bold
+} elseif ($channel -like "*KMSCLIENT*" -and -not $isDomainJoined) {
+    Write-Host "NGHI VẤN (KMS Volume cá nhân)" -ForegroundColor Yellow -Bold
+} elseif ($winProducts -and $winProducts[0].LicenseStatus -eq 1) {
+    Write-Host "CHÍNH HÃNG (Genuine - $channel)" -ForegroundColor Green -Bold
+} else {
+    Write-Host "CHƯA KÍCH HOẠT / HẾT HẠN" -ForegroundColor Red -Bold
+}
+
+# Office status
+Write-Host "  * Microsoft Office : " -NoNewline
+if ($ohookDetected) {
+    Write-Host "PHÁT HIỆN CRACK (Bypass Ohook sppc.dll)" -ForegroundColor Red -Bold
+} elseif ($officeKms -or $officeGuidKms) {
+    Write-Host "PHÁT HIỆN CAN THIỆP (KMS Redirect)" -ForegroundColor Red -Bold
+} elseif ($osppPaths.Count -gt 0) {
+    Write-Host "ĐÃ CÀI ĐẶT (Cần xem chi tiết trạng thái ở mục [3])" -ForegroundColor Cyan -Bold
+} else {
+    Write-Host "KHÔNG PHÁT HIỆN CÀI ĐẶT" -ForegroundColor Gray
+}
+
+# Defender status
+Write-Host "  * Trình bảo vệ     : " -NoNewline
+if ($defenderTampered) {
+    Write-Host "BÌ CAN THIỆP / VÔ HIỆU HÓA" -ForegroundColor Red -Bold
+} else {
+    Write-Host "BẢO VỆ TỐT (Hoạt động)" -ForegroundColor Green -Bold
+}
+
+# BitLocker status
+Write-Host "  * Mã hóa BitLocker : " -NoNewline
+if ($bitlockerActive) {
+    Write-Host "ĐÃ KÍCH HOẠT (Bảo vệ dữ liệu)" -ForegroundColor Green -Bold
+} else {
+    Write-Host "TẮT (Chưa mã hóa)" -ForegroundColor Yellow -Bold
+}
+
+# Third-party Apps (Adobe & CAD)
+Write-Host "  * Adobe & Autodesk : " -NoNewline
+if ($crackAppsFound) {
+    Write-Host "PHÁT HIỆN DẤU HIỆU BẺ KHÓA (Patch/Firewall/Hosts)" -ForegroundColor Red -Bold
+} else {
+    Write-Host "KHÔNG PHÁT HIỆN CAN THIỆP" -ForegroundColor Green -Bold
+}
+
+# Windows 11 Compatibility Bypass
+Write-Host "  * Tiêu chuẩn Win 11: " -NoNewline
+if ($isBypassedInstall) {
+    Write-Host "ĐÃ VƯỢT YÊU CẦU (Bypassed Hardware)" -ForegroundColor Yellow -Bold
+} else {
+    Write-Host "ĐẠT TIÊU CHUẨN / KHÔNG ÁP DỤNG" -ForegroundColor Green -Bold
+}
+Write-Host ""
+
+# 5.3 Final Assessment Classification
 $assessment = "GENUINE"
 
 if ($tamperDetected) {
@@ -549,13 +611,14 @@ if ($tamperDetected) {
 
 if ($assessment -eq "GENUINE") {
     Write-Host " ========================================================================" -ForegroundColor Green -Bold
-    Write-Host "    KẾT QUẢ: HỆ THỐNG HOÀN TOÀN CHÍNH HÃNG (GENUINE / CLEAN)" -ForegroundColor Green -Bold
+    Write-Host "    KẾT QUẢ CHUNG: HỆ THỐNG HOÀN TOÀN CHÍNH HÃNG (GENUINE / CLEAN)" -ForegroundColor Green -Bold
     Write-Host " ========================================================================" -ForegroundColor Green -Bold
     Write-Host "  * Không phát hiện bất kỳ dấu vết can thiệp, tệp tin crack, dịch vụ lậu," -ForegroundColor Green
     Write-Host "  * hay cấu hình chuyển hướng KMS giả mạo nào trên thiết bị này." -ForegroundColor Green
+    Write-Host "  * Trình bảo vệ Windows Defender hoạt động an toàn." -ForegroundColor Green
 } elseif ($assessment -eq "SUSPICIOUS") {
     Write-Host " ========================================================================" -ForegroundColor Yellow -Bold
-    Write-Host "    KẾT QUẢ: PHÁT HIỆN DẤU HIỆU NGHI VẤN (SUSPICIOUS)" -ForegroundColor Yellow -Bold
+    Write-Host "    KẾT QUẢ CHUNG: PHÁT HIỆN DẤU HIỆU NGHI VẤN (SUSPICIOUS)" -ForegroundColor Yellow -Bold
     Write-Host " ========================================================================" -ForegroundColor Yellow -Bold
     Write-Host "  * Hệ thống phát hiện các cấu hình nghi vấn sau:" -ForegroundColor Yellow
     foreach ($reason in $suspiciousReasons) {
@@ -563,11 +626,21 @@ if ($assessment -eq "GENUINE") {
     }
 } else {
     Write-Host " ========================================================================" -ForegroundColor Red -Bold
-    Write-Host "    KẾT QUẢ: PHÁT HIỆN CAN THIỆP BẢN QUYỀN LẬU (CRACKED / TAMPERED)" -ForegroundColor Red -Bold
+    Write-Host "    KẾT QUẢ CHUNG: PHÁT HIỆN CAN THIỆP BẢN QUYỀN LẬU / BẢO MẬT BỊ TẮT" -ForegroundColor Red -Bold
     Write-Host " ========================================================================" -ForegroundColor Red -Bold
-    Write-Host "  * Hệ thống phát hiện các cấu hình máy chủ KMS nội bộ (loopback), các tệp tin" -ForegroundColor Red
-    Write-Host "  * bypass dll (Ohook sppc.dll), tệp tin crack hoặc dịch vụ kích hoạt không" -ForegroundColor Red
-    Write-Host "  * chính thức của bên thứ ba (KMSpico, KMSAuto, MAS, v.v.)." -ForegroundColor Red
+    Write-Host "  * Thiết bị phát hiện các vấn đề nghiêm trọng:" -ForegroundColor Red
+    if ($winKms -or $winGuidKms) { 
+        Write-Host "      - Windows bị can thiệp máy chủ KMS hoặc cấu hình KMS38." -ForegroundColor Red 
+    }
+    if ($ohookDetected -or $officeKms -or $officeGuidKms) { 
+        Write-Host "      - Microsoft Office sử dụng cơ chế bypass Ohook hoặc cấu hình KMS lậu." -ForegroundColor Red 
+    }
+    if ($defenderTampered) { 
+        Write-Host "      - Trình bảo vệ Windows Defender bị can thiệp/tắt bảo vệ thời gian thực." -ForegroundColor Red 
+    }
+    if ($crackAppsFound) { 
+        Write-Host "      - Phát hiện dấu vết bẻ khóa hoặc cấu hình chặn tường lửa/hosts cho phần mềm Adobe / Autodesk CAD." -ForegroundColor Red 
+    }
 }
 Write-Host ""
 Write-Host "================================================================================" -ForegroundColor Cyan

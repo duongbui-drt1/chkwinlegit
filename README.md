@@ -37,13 +37,30 @@ Công cụ này yêu cầu quyền quản trị viên (Administrator) để truy
 
 ## Cơ Chế Phiên Bản (Versioning Scheme)
 
-Phiên bản có định dạng: `[Loại bản vá].[Số bản sửa]` (Ví dụ: `C.01`)
+Phiên bản có định dạng: `[Loại bản vá].[Số bản sửa]` (Ví dụ: `C.02`)
 
 *   **A** - Bản vá nặng, thay đổi lớn về mặt kiến trúc hoặc bổ sung mô-đun quan trọng.
 *   **B** - Bản vá vừa, nâng cấp tính năng chẩn đoán.
 *   **C** - Bản vá ít, tinh chỉnh độ ổn định, sửa lỗi nhỏ.
 *   **D** - Cập nhật bảo mật hoặc tối ưu hóa hiệu suất định kỳ.
 *   `0` (Số bản sửa) - Số lượng bản vá sửa đổi nhỏ được tích lũy.
+
+---
+
+## Lịch Sử Phiên Bản (Version History)
+
+*   **vC.02**:
+    - Nâng cấp phần **Đánh giá chung hệ thống (Final Assessment)** với bảng phân tích chi tiết trạng thái của từng thành phần (Windows, Office, Defender, BitLocker, Adobe/Autodesk, Tiêu chuẩn Win 11).
+    - Cập nhật phần kết luận chi tiết để liệt kê cụ thể các lỗi bảo mật và bản quyền phát hiện được trên thiết bị.
+    - Sửa lỗi xung đột tham số của lệnh `Get-NetFirewallRule` trên các phiên bản Windows/PowerShell cũ.
+*   **vC.01**:
+    - Thêm kiểm tra trạng thái **Windows Defender** và các can thiệp tắt bảo vệ.
+    - Thêm kiểm tra cấu hình mã hóa **BitLocker**.
+    - Thêm kiểm tra **Adobe và Autodesk CAD bẻ khóa** (quét `amtlib.dll`, quy tắc chặn tường lửa, chặn tên miền trong tệp `hosts`).
+    - Thêm kiểm tra cài đặt "Vượt" (Bypasses) phần cứng trên Windows 11.
+    - Bổ sung Device UUID và Machine GUID vào thông tin hệ thống.
+*   **vC.00**:
+    - Khởi tạo dự án kiểm tra bản quyền Windows & Office cơ bản bằng hybrid kịch bản Batch/PowerShell.
 
 ---
 
