@@ -3,8 +3,12 @@
 # PowerShell code starts here...
 Clear-Host
 
+# Version & Credit info
+$version = "C.01"
+$credit = "Made by Duli Software & Antigravity"
+
 # Set console title
-$host.UI.RawUI.WindowTitle = "HỆ THỐNG KIỂM TRA BẢN QUYỀN WINDOWS / OFFICE CHÍNH HÃNG - chkwinlegit"
+$host.UI.RawUI.WindowTitle = "HỆ THỐNG KIỂM TRA BẢN QUYỀN WINDOWS / OFFICE CHÍNH HÃNG - chkwinlegit v$version"
 
 # Check for Administrative Privileges
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -18,6 +22,7 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 
 Write-Host "================================================================================" -ForegroundColor Cyan
 Write-Host "   HỆ THỐNG KIỂM TRA BẢN QUYỀN WINDOWS & OFFICE CHÍNH HÃNG (chkwinlegit)" -ForegroundColor White -Bold
+Write-Host "   Phiên bản: $version | $credit" -ForegroundColor White
 Write-Host "================================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -29,9 +34,24 @@ $formattedDate = "Không xác định"
 if ($os.InstallDate) {
     $formattedDate = $os.InstallDate.ToString("dd/MM/yyyy HH:mm")
 }
+
+# Get Device Identifiers
+$uuid = "Không xác định"
+$machineGuid = "Không xác định"
+$computerProduct = Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction SilentlyContinue
+if ($computerProduct) {
+    $uuid = $computerProduct.UUID
+}
+$cryptoKey = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -ErrorAction SilentlyContinue
+if ($cryptoKey -and $cryptoKey.MachineGuid) {
+    $machineGuid = $cryptoKey.MachineGuid
+}
+
 Write-Host " * Hệ điều hành  : $($os.Caption) ($($os.OSArchitecture))"
 Write-Host " * Phiên bản     : $($os.Version)"
 Write-Host " * Ngày cài đặt  : $formattedDate"
+Write-Host " * Device UUID   : $uuid"
+Write-Host " * Machine GUID  : $machineGuid"
 Write-Host ""
 
 # 2. WINDOWS ACTIVATION STATUS
@@ -115,6 +135,8 @@ Write-Host ""
 Write-Host "[4] QUÉT SÂU HỆ THỐNG PHÁT HIỆN CAN THIỆP & BẢN QUYỀN LẬU" -ForegroundColor Blue -Bold
 Write-Host "--------------------------------------------------------------------------------"
 $tamperDetected = $false
+$suspiciousDetected = $false
+$suspiciousReasons = @()
 
 # 4.1 Check Windows KMS Host Registry
 Write-Host " [4.1] Kiểm tra cấu hình KMS Host của Windows..."
@@ -290,6 +312,217 @@ foreach ($path in $ifeoPaths) {
 if (-not $ifeoHijacked) {
     Write-Host "   [+] Không phát hiện can thiệp IFEO đối với các tiến trình bản quyền." -ForegroundColor Green
 }
+
+# 4.9 BitLocker Encryption Status Check
+Write-Host " [4.9] Kiểm tra trạng thái mã hóa BitLocker..."
+$bitlockerActive = $false
+$volumes = Get-BitLockerVolume -ErrorAction SilentlyContinue
+if ($volumes) {
+    foreach ($vol in $volumes) {
+        $protection = if ($vol.ProtectionStatus -eq "On") {
+            $bitlockerActive = $true
+            "BẬT (Đã bảo vệ)"
+        } else {
+            "TẮT (Chưa bảo vệ)"
+        }
+        $color = if ($vol.ProtectionStatus -eq "On") { "Green" } else { "Yellow" }
+        Write-Host "   * Ổ $($vol.MountPoint) ($($vol.VolumeType)) : " -NoNewline
+        Write-Host $protection -ForegroundColor $color
+    }
+} else {
+    Write-Host "   [+] Không tìm thấy ổ đĩa nào cấu hình BitLocker hoặc không được hỗ trợ trên ấn bản Windows này." -ForegroundColor Yellow
+}
+
+# 4.10 Windows Defender Tampering & Status Check
+Write-Host " [4.10] Kiểm tra trạng thái và can thiệp Windows Defender..."
+$defenderTampered = $false
+$defReasons = @()
+
+# Check Defender Service
+$defService = Get-Service -Name WinDefender -ErrorAction SilentlyContinue
+if ($defService) {
+    if ($defService.Status -ne "Running") {
+        $defenderTampered = $true
+        $defReasons += "Dịch vụ WinDefender đang ở trạng thái: $($defService.Status) (Yêu cầu: Running)"
+    }
+} else {
+    $defenderTampered = $true
+    $defReasons += "Không tìm thấy dịch vụ WinDefender trên hệ thống!"
+}
+
+# Check MpComputerStatus (Real-Time Protection)
+$mp = Get-MpComputerStatus -ErrorAction SilentlyContinue
+if ($mp) {
+    if (-not $mp.RealTimeProtectionEnabled) {
+        $defenderTampered = $true
+        $defReasons += "Bảo vệ thời gian thực (Real-Time Protection) đang bị TẮT"
+    }
+    if (-not $mp.AntivirusEnabled) {
+        $defenderTampered = $true
+        $defReasons += "Bảo vệ diệt virus (Antivirus Enabled) đang bị TẮT"
+    }
+} else {
+    $defenderTampered = $true
+    $defReasons += "Không thể kết nối đến trình quản lý trạng thái Windows Defender (MpComputerStatus)"
+}
+
+# Check Policies Registry (DisableAntiSpyware GPO)
+$gpoDefPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender"
+if (Test-Path $gpoDefPath) {
+    $gpoKeys = Get-ItemProperty -Path $gpoDefPath -ErrorAction SilentlyContinue
+    if ($gpoKeys -and $gpoKeys.DisableAntiSpyware -eq 1) {
+        $defenderTampered = $true
+        $defReasons += "Phát hiện DisableAntiSpyware = 1 trong Group Policy (Vô hiệu hóa Defender)"
+    }
+}
+
+if ($defenderTampered) {
+    Write-Host "   [!] Phát hiện can thiệp hoặc Windows Defender bị tắt không an toàn!" -ForegroundColor Red
+    foreach ($reason in $defReasons) {
+        Write-Host "      -> $reason" -ForegroundColor Red
+    }
+    $tamperDetected = $true
+} else {
+    Write-Host "   [+] Windows Defender đang hoạt động bình thường, bảo vệ thời gian thực BẬT." -ForegroundColor Green
+}
+
+# 4.11 Check for Adobe & Autodesk CAD Cracks
+Write-Host " [4.11] Quét dấu vết phần mềm Adobe & Autodesk CAD bẻ khóa..."
+$crackAppsFound = $false
+$crackAppDetails = @()
+
+# Check for old Adobe patch dll (amtlib.dll)
+$adobePath = "$env:ProgramFiles\Adobe"
+$adobePathX86 = "${env:ProgramFiles(x86)}\Adobe"
+$amtlibFound = @()
+if (Test-Path $adobePath) {
+    $amtlibFound += Get-ChildItem -Path $adobePath -Filter "amtlib.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+}
+if (Test-Path $adobePathX86) {
+    $amtlibFound += Get-ChildItem -Path $adobePathX86 -Filter "amtlib.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+}
+
+if ($amtlibFound.Count -gt 0) {
+    $crackAppsFound = $true
+    $tamperDetected = $true
+    $crackAppDetails += "Phát hiện tệp tin crack cổ điển 'amtlib.dll' trong thư mục Adobe:"
+    foreach ($path in $amtlibFound) {
+        $crackAppDetails += "      -> $path"
+    }
+}
+
+# Check Firewall block rules blocking Adobe & Autodesk outbound
+$adobeRules = Get-NetFirewallRule -DisplayName "*Adobe*" -Action Block -ErrorAction SilentlyContinue
+if ($adobeRules) {
+    $crackAppsFound = $true
+    $tamperDetected = $true
+    $crackAppDetails += "Phát hiện $($adobeRules.Count) quy tắc chặn Tường lửa (Firewall) đối với sản phẩm Adobe (Dấu hiệu Adobe GenP/Monkrus)."
+}
+
+$autodeskRules = Get-NetFirewallRule -DisplayName "*Autodesk*" -Action Block -ErrorAction SilentlyContinue
+if ($autodeskRules) {
+    $crackAppsFound = $true
+    $tamperDetected = $true
+    $crackAppDetails += "Phát hiện $($autodeskRules.Count) quy tắc chặn Tường lửa đối với sản phẩm Autodesk CAD."
+}
+
+# Check hosts file for Adobe/Autodesk blocklist domains
+if (Test-Path $hostsPath) {
+    $blockedSoftwareDomains = "adobe.com|activate.adobe|lmlicenses.wip4.adobe.com|na1r.services.adobe.com|genuine-software.autodesk.com"
+    $hostsTamperedSoftware = $hostsContent | Where-Object { $_ -notmatch "^\s*#" -and $_ -match $blockedSoftwareDomains }
+    if ($hostsTamperedSoftware) {
+        $crackAppsFound = $true
+        $tamperDetected = $true
+        $crackAppDetails += "Phát hiện cấu hình chặn máy chủ bản quyền Adobe/Autodesk trong tệp hosts:"
+        foreach ($line in $hostsTamperedSoftware) {
+            $crackAppDetails += "      -> $($line.Trim())"
+        }
+    }
+}
+
+if ($crackAppsFound) {
+    Write-Host "   [!] Phát hiện dấu vết bẻ khóa hoặc can thiệp bản quyền phần mềm Adobe / Autodesk CAD!" -ForegroundColor Red
+    foreach ($detail in $crackAppDetails) {
+        Write-Host "      $detail" -ForegroundColor Red
+    }
+} else {
+    Write-Host "   [+] Không phát hiện dấu vết bẻ khóa phổ biến đối với sản phẩm Adobe và Autodesk CAD." -ForegroundColor Green
+}
+
+# 4.12 Bypassed OS Requirements Check ("Vượt" Windows 11 Check)
+Write-Host " [4.12] Kiểm tra thiết bị cài đặt 'vượt' yêu cầu hệ thống (Windows 11)..."
+$isBypassedInstall = $false
+$bypassReasons = @()
+
+$versionParts = $os.Version.Split('.')
+$buildNum = 0
+if ($versionParts.Count -ge 3) {
+    [void][int]::TryParse($versionParts[2], [ref]$buildNum)
+}
+
+if ($buildNum -ge 22000) {
+    # It is Windows 11. Check hardware requirements.
+    
+    # 1. Check TPM
+    $tpm = Get-Tpm -ErrorAction SilentlyContinue
+    if (-not $tpm -or -not $tpm.TpmPresent) {
+        $isBypassedInstall = $true
+        $bypassReasons += "Không tìm thấy chip TPM (Yêu cầu TPM 2.0)"
+    } else {
+        $tpmWmi = Get-CimInstance -Namespace root\CIMV2\Security\MicrosoftTpm -ClassName Win32_Tpm -ErrorAction SilentlyContinue
+        if ($tpmWmi) {
+            $spec = $tpmWmi.SpecVersion.Split(',')[0].Trim()
+            if ($spec -ne "2.0") {
+                $isBypassedInstall = $true
+                $bypassReasons += "Phiên bản TPM là $spec (Yêu cầu TPM 2.0)"
+            }
+        }
+    }
+    
+    # 2. Check Secure Boot
+    try {
+        $sb = Confirm-SecureBootUEFI
+        if (-not $sb) {
+            $isBypassedInstall = $true
+            $bypassReasons += "Secure Boot đang TẮT"
+        }
+    } catch {
+        $isBypassedInstall = $true
+        $bypassReasons += "Hệ thống chạy trên Legacy BIOS / Không hỗ trợ Secure Boot"
+    }
+    
+    # 3. Check LabConfig bypasses in Registry
+    $labConfigPath = "HKLM:\SYSTEM\Setup\LabConfig"
+    if (Test-Path $labConfigPath) {
+        $bypassKeys = Get-ItemProperty -Path $labConfigPath -ErrorAction SilentlyContinue
+        $foundBypasses = @()
+        if ($bypassKeys -and $bypassKeys.BypassTPMCheck -eq 1) { $foundBypasses += "BypassTPMCheck" }
+        if ($bypassKeys -and $bypassKeys.BypassSecureBootCheck -eq 1) { $foundBypasses += "BypassSecureBootCheck" }
+        if ($bypassKeys -and $bypassKeys.BypassRAMCheck -eq 1) { $foundBypasses += "BypassRAMCheck" }
+        if ($bypassKeys -and $bypassKeys.BypassCPUCheck -eq 1) { $foundBypasses += "BypassCPUCheck" }
+        if ($bypassKeys -and $bypassKeys.BypassStorageCheck -eq 1) { $foundBypasses += "BypassStorageCheck" }
+        
+        if ($foundBypasses.Count -gt 0) {
+            $isBypassedInstall = $true
+            $bypassReasons += "Phát hiện cấu hình bypass trong Registry: $($foundBypasses -join ', ')"
+        }
+    }
+}
+
+if ($isBypassedInstall) {
+    Write-Host "   [!] Phát hiện thiết bị chạy Windows 11 'vượt' yêu cầu phần cứng cũ của Microsoft!" -ForegroundColor Yellow
+    foreach ($reason in $bypassReasons) {
+        Write-Host "      -> $reason" -ForegroundColor Yellow
+    }
+    $suspiciousDetected = $true
+    $suspiciousReasons += "Thiết bị không đáp ứng tiêu chuẩn phần cứng Windows 11 nhưng đã cài đặt vượt."
+} else {
+    if ($buildNum -ge 22000) {
+        Write-Host "   [+] Thiết bị đáp ứng đầy đủ tiêu chuẩn phần cứng Windows 11." -ForegroundColor Green
+    } else {
+        Write-Host "   [+] Phiên bản Windows cũ hơn Windows 11, không áp dụng kiểm tra vượt yêu cầu." -ForegroundColor Green
+    }
+}
 Write-Host ""
 
 # 5. FINAL ASSESSMENT
@@ -305,10 +538,12 @@ $assessment = "GENUINE"
 
 if ($tamperDetected) {
     $assessment = "CRACKED"
+} elseif ($suspiciousDetected) {
+    $assessment = "SUSPICIOUS"
 } else {
     if ($channel -like "*KMSCLIENT*" -and -not $isDomainJoined) {
-        Write-Host " [!] Cảnh báo: Windows sử dụng kênh KMS nhưng máy tính không thuộc Domain doanh nghiệp." -ForegroundColor Yellow
         $assessment = "SUSPICIOUS"
+        $suspiciousReasons += "Sử dụng khóa KMS Volume trên máy cá nhân không gia nhập miền doanh nghiệp."
     }
 }
 
@@ -322,9 +557,10 @@ if ($assessment -eq "GENUINE") {
     Write-Host " ========================================================================" -ForegroundColor Yellow -Bold
     Write-Host "    KẾT QUẢ: PHÁT HIỆN DẤU HIỆU NGHI VẤN (SUSPICIOUS)" -ForegroundColor Yellow -Bold
     Write-Host " ========================================================================" -ForegroundColor Yellow -Bold
-    Write-Host "  * Hệ thống sử dụng cơ chế cấp phép KMS dành cho doanh nghiệp nhưng thiết bị" -ForegroundColor Yellow
-    Write-Host "  * hiện tại là cá nhân (không gia nhập miền). Bản quyền có thể đã được nạp" -ForegroundColor Yellow
-    Write-Host "  * bằng các khóa generic (GVLK) mà không có máy chủ KMS nội bộ hợp lệ." -ForegroundColor Yellow
+    Write-Host "  * Hệ thống phát hiện các cấu hình nghi vấn sau:" -ForegroundColor Yellow
+    foreach ($reason in $suspiciousReasons) {
+        Write-Host "      -> $reason" -ForegroundColor Yellow
+    }
 } else {
     Write-Host " ========================================================================" -ForegroundColor Red -Bold
     Write-Host "    KẾT QUẢ: PHÁT HIỆN CAN THIỆP BẢN QUYỀN LẬU (CRACKED / TAMPERED)" -ForegroundColor Red -Bold
