@@ -3,7 +3,7 @@
 # PowerShell code starts here...
 Clear-Host
 
-$version = "A.00"
+$version = "A.01"
 $credit = "Made by Duli Software & Antigravity"
 
 # Set console title
@@ -264,11 +264,53 @@ $jsonObj = [PSCustomObject]@{
 
 $jsonOutput = $jsonObj | ConvertTo-Json -Depth 5
 
+# Display human-readable results first
+Write-Host " KẾT QUẢ PHÂN TÍCH AN TOÀN HỆ THỐNG / SECURITY ANALYSIS REPORT:" -ForegroundColor Blue
+Write-Host " ========================================================================" -ForegroundColor Cyan
+if ($isCracked) {
+    if ($riskLevel -eq "High") {
+        Write-Host "    TRẠNG THÁI: PHÁT HIỆN CAN THIỆP BẢN QUYỀN LẬU (CRACKED)" -ForegroundColor Red
+    } else {
+        Write-Host "    TRẠNG THÁI: PHÁT HIỆN DẤU HIỆU NGHI VẤN (SUSPICIOUS)" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "    TRẠNG THÁI: HỆ THỐNG AN TOÀN (CLEAN / SECURE)" -ForegroundColor Green
+}
+Write-Host " ========================================================================" -ForegroundColor Cyan
+Write-Host "  * Phương thức bẻ khóa  : " -NoNewline
+switch ($crackMethod) {
+    "KMS" { Write-Host "Giả lập KMS (KMS Emulation / Online redirect)" -ForegroundColor Red }
+    "Ohook" { Write-Host "Ohook DLL Hijacking (Office bypass)" -ForegroundColor Red }
+    "HWID" { Write-Host "Kích hoạt kỹ thuật số lậu (HWID Bypass)" -ForegroundColor Red }
+    Default { Write-Host "Sạch / Không phát hiện" -ForegroundColor Green }
+}
+Write-Host "  * Mức độ tin cậy       : $([math]::Round($confidenceScore * 100))%" -ForegroundColor White
+Write-Host "  * Mức độ rủi ro        : " -NoNewline
+switch ($riskLevel) {
+    "High" { Write-Host "NGUY HIỂM CAO (High)" -ForegroundColor Red }
+    "Medium" { Write-Host "TRUNG BÌNH (Medium)" -ForegroundColor Yellow }
+    Default { Write-Host "KHÔNG CÓ (None)" -ForegroundColor Green }
+}
+Write-Host ""
+Write-Host "  * Bằng chứng phát hiện:" -ForegroundColor Cyan
+if ($evidenceList.Count -eq 0) {
+    Write-Host "    -> Không có bằng chứng vi phạm nào được ghi nhận." -ForegroundColor Green
+} else {
+    foreach ($evidence in $evidenceList) {
+        Write-Host "    -> $evidence" -ForegroundColor Red
+    }
+}
+Write-Host ""
+Write-Host "  * Khuyến nghị khắc phục:" -ForegroundColor Cyan
+Write-Host "    -> $recommendation" -ForegroundColor White
+Write-Host " ========================================================================" -ForegroundColor Cyan
+Write-Host ""
+
 # Display JSON output clearly for parent program parsing
-Write-Host " KẾT QUẢ PHÂN TÍCH AN TOÀN HỆ THỐNG (JSON):" -ForegroundColor Green
-Write-Host "================================================================================" -ForegroundColor Cyan
+Write-Host " KẾT QUẢ ĐẦU RA RAW JSON (DÀNH CHO HỆ THỐNG TỰ ĐỘNG PHÂN TÍCH):" -ForegroundColor Green
+Write-Host "--------------------------------------------------------------------------------"
 Write-Host $jsonOutput
-Write-Host "================================================================================" -ForegroundColor Cyan
+Write-Host "--------------------------------------------------------------------------------"
 Write-Host ""
 
 # 2. DEEP PORT & NETSTAT SCAN
