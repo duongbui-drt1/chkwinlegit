@@ -24,7 +24,7 @@ if (-not (Test-Path $mainScriptPath)) {
 # Check for Administrative Privileges
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "================================================================================" -ForegroundColor Red
-    Write-Host " YÊU CẦU QUYỀN ADMINISTRATOR / ADMINISTRATOR PRIVILEGES REQUIRED" -ForegroundColor Yellow -Bold
+    Write-Host " YÊU CẦU QUYỀN ADMINISTRATOR / ADMINISTRATOR PRIVILEGES REQUIRED" -ForegroundColor Yellow
     Write-Host "================================================================================" -ForegroundColor Red
     Write-Host "Đang yêu cầu quyền Administrator để thực hiện quét sâu hệ thống..."
     Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$env:BAT_PATH`"" -Verb RunAs
@@ -32,7 +32,7 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host "   GIAI ĐOẠN 2: QUÉT SÂU BẢO MẬT, MẠNG & TỆP TIN NÉ CHECK" -ForegroundColor White -Bold
+Write-Host "   GIAI ĐOẠN 2: QUÉT SÂU BẢO MẬT, MẠNG & TỆP TIN NÉ CHECK" -ForegroundColor White
 Write-Host "   Phiên bản: $version | $credit" -ForegroundColor White
 Write-Host "================================================================================" -ForegroundColor Cyan
 Write-Host ""
@@ -52,8 +52,8 @@ function Show-ProgressBar ([int]$current, [int]$total, [string]$activity) {
     Write-Host $msg -NoNewline
 }
 
-# 1. DEEP FILE SCAN (EVASIVE CRACKS)
-Write-Host "[1] QUÉT SÂU TỆP TIN CRACK NÉ CHECK (EVASIVE FILES)" -ForegroundColor Blue -Bold
+# 1. DEEP FILE SCAN & SECURITY ANALYST
+Write-Host "[1] PHÂN TÍCH MÃ ĐỘC & AN TOÀN HỆ THỐNG / SECURITY & MALWARE ANALYST" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 Write-Host " Đang chuẩn bị danh sách thư mục quét..." -ForegroundColor Yellow
 
@@ -82,19 +82,19 @@ $foundEvasiveFiles = @()
 $totalFolders = $activeScanPaths.Count
 $currentFolderIndex = 0
 
-Write-Host " Bắt đầu quét sâu tệp tin (Tiến trình có thể mất từ 10-30 giây)..." -ForegroundColor Yellow
+Write-Host " Bắt đầu quét sâu hệ thống (Tiến trình có thể mất từ 10-30 giây)..." -ForegroundColor Yellow
 
 foreach ($folder in $activeScanPaths) {
     $currentFolderIndex++
     $folderName = Split-Path $folder -Leaf
-    Show-ProgressBar $currentFolderIndex $totalFolders "Đang quét thư mục: $folderName"
+    Show-ProgressBar $currentFolderIndex $totalFolders "Đang phân tích thư mục: $folderName"
     
     foreach ($pattern in $patterns) {
         try {
             $files = Get-ChildItem -Path $folder -Filter $pattern -Recurse -File -ErrorAction SilentlyContinue
             if ($files) {
                 foreach ($file in $files) {
-                    $foundEvasiveFiles += $file.FullName
+                    $foundEvasiveFiles += $file
                 }
             }
         } catch {
@@ -102,28 +102,177 @@ foreach ($folder in $activeScanPaths) {
         }
     }
 }
+
 # Clear progress bar line
 Write-Host "`r" -NoNewline
 Write-Host (" " * 79) -NoNewline
 Write-Host "`r" -NoNewline
 
-if ($foundEvasiveFiles.Count -gt 0) {
-    Write-Host " [!] Phát hiện $($foundEvasiveFiles.Count) tệp tin chứa từ khóa crack hoặc né check:" -ForegroundColor Red
-    # Output first 25 files to avoid spamming the console
-    $displayCount = [math]::Min($foundEvasiveFiles.Count, 25)
-    for ($i = 0; $i -lt $displayCount; $i++) {
-        Write-Host "   -> $($foundEvasiveFiles[$i])" -ForegroundColor Red
+# Collect inputs for Security & Malware Analyst
+$evidenceList = @()
+$isCracked = $false
+$confidenceScore = 0.0
+$crackMethod = "None"
+$riskLevel = "None"
+$recommendation = "Hệ thống sạch và an toàn (Clean). Không phát hiện bất kỳ dấu vết bẻ khóa nào."
+
+# 1. Analyze File system (Rule 1: No False Positives for docx, pdf, txt, png, etc.)
+$dangerousExtensions = @(".exe", ".dll", ".sys", ".cmd", ".bat", ".vbs", ".ps1", ".msi", ".scr")
+$detectedCrackFiles = @()
+
+foreach ($file in $foundEvasiveFiles) {
+    $ext = $file.Extension.ToLower()
+    $fileNameLower = $file.Name.ToLower()
+    
+    # Check if it is a real binary/executable or script
+    if ($ext -in $dangerousExtensions) {
+        # Check specific crack signatures
+        if ($fileNameLower -match "sppc\.dll") {
+            $detectedCrackFiles += $file.FullName
+            $isCracked = $true
+            $crackMethod = "Ohook"
+            $evidenceList += "Phát hiện tệp tin DLL Hijacking (Ohook) '$($file.Name)' tại: $($file.FullName)"
+        }
+        elseif ($fileNameLower -match "vlmcsd" -or $fileNameLower -match "sppextcomobjhook") {
+            $detectedCrackFiles += $file.FullName
+            $isCracked = $true
+            if ($crackMethod -eq "None") { $crackMethod = "KMS" }
+            $evidenceList += "Phát hiện tệp tin giả lập KMS server offline '$($file.Name)' tại: $($file.FullName)"
+        }
+        elseif ($fileNameLower -match "kmsauto" -or $fileNameLower -match "kmspico" -or $fileNameLower -match "autokms") {
+            $detectedCrackFiles += $file.FullName
+            $isCracked = $true
+            if ($crackMethod -eq "None") { $crackMethod = "KMS" }
+            $evidenceList += "Phát hiện tệp tin công cụ KMS lậu '$($file.Name)' tại: $($file.FullName)"
+        }
+        elseif ($fileNameLower -match "amtlib\.dll" -or $fileNameLower -match "adobe\.snr" -or $fileNameLower -match "genp" -or $fileNameLower -match "xf-adsk") {
+            $detectedCrackFiles += $file.FullName
+            $isCracked = $true
+            if ($crackMethod -eq "None") { $crackMethod = "KMS" } # General software patch
+            $evidenceList += "Phát hiện tệp tin bẻ khóa phần mềm Adobe/Autodesk '$($file.Name)' tại: $($file.FullName)"
+        }
     }
-    if ($foundEvasiveFiles.Count -gt 25) {
-        Write-Host "   ... và $($foundEvasiveFiles.Count - 25) tệp tin khác." -ForegroundColor Red
+}
+
+# Check for sppc.dll in Office directories specifically
+$ohookPaths = @(
+    "$env:ProgramFiles\Microsoft Office\root\vfs\System\sppc.dll",
+    "${env:ProgramFiles(x86)}\Microsoft Office\root\vfs\System\sppc.dll"
+)
+foreach ($path in $ohookPaths) {
+    if (Test-Path $path) {
+        $isCracked = $true
+        $crackMethod = "Ohook"
+        $evidenceList += "Phát hiện tệp tin Ohook sppc.dll bypass hoạt động tại: $path"
+    }
+}
+
+# 2. Analyze Running Processes
+$suspiciousProcesses = Get-Process -ErrorAction SilentlyContinue | Where-Object { 
+    $_.Name -match "vlmcsd|AutoKMS|KMSAuto|KMSpico|SppExtComObjHook"
+}
+if ($suspiciousProcesses) {
+    $isCracked = $true
+    if ($crackMethod -eq "None") { $crackMethod = "KMS" }
+    foreach ($proc in $suspiciousProcesses) {
+        $evidenceList += "Phát hiện tiến trình crack đang chạy ngầm: $($proc.Name) (PID: $($proc.Id))"
+    }
+}
+
+# 3. Analyze Registry KMS Overrides
+$sppKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"
+$winKms = $null
+$winGuidKms = $null
+if (Test-Path $sppKey) {
+    $winKms = (Get-ItemProperty -Path $sppKey -Name KeyManagementServiceServer -ErrorAction SilentlyContinue).KeyManagementServiceServer
+    $guidKey = "$sppKey\55c92734-d682-4d71-983e-d6ec3f16059f"
+    if (Test-Path $guidKey) {
+        $winGuidKms = (Get-ItemProperty -Path $guidKey -Name KeyManagementServiceServer -ErrorAction SilentlyContinue).KeyManagementServiceServer
+    }
+}
+$officeSppKey = "HKLM:\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform"
+$officeKms = $null
+$officeGuidKms = $null
+if (Test-Path $officeSppKey) {
+    $officeKms = (Get-ItemProperty -Path $officeSppKey -Name KeyManagementServiceServer -ErrorAction SilentlyContinue).KeyManagementServiceServer
+}
+$officeGuidKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\0ff1ce15-a989-47d8-bc5f-7265743b10f5"
+if (Test-Path $officeGuidKey) {
+    $officeGuidKms = (Get-ItemProperty -Path $officeGuidKey -Name KeyManagementServiceServer -ErrorAction SilentlyContinue).KeyManagementServiceServer
+}
+
+$kmsServers = @($winKms, $winGuidKms, $officeKms, $officeGuidKms) | Where-Object { $_ } | Select-Object -Unique
+foreach ($server in $kmsServers) {
+    if ($server -match "127\.|kms8\.msguides\.com|kms\.lotro\.cc|msguides|kms\.digiboy\.ir|kms\.chinancce\.com") {
+        $isCracked = $true
+        if ($crackMethod -eq "None") { $crackMethod = "KMS" }
+        $evidenceList += "Phát hiện registry trỏ tới máy chủ KMS lậu/giả lập: $server"
+    }
+}
+
+# 4. Check Windows Activation channel
+$isDomainJoined = $false
+$compSystem = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+if ($compSystem) { $isDomainJoined = $compSystem.PartOfDomain }
+
+$winProducts = Get-CimInstance -Namespace root\CIMV2 -ClassName SoftwareLicensingProduct | Where-Object { $_.PartialProductKey -and $_.Description -like "*Windows*" }
+$channel = ""
+if ($winProducts) {
+    $slmgrDli = cscript //nologo C:\Windows\System32\slmgr.vbs /dli 2>$null
+    $channelLine = $slmgrDli | Where-Object { $_ -like "*channel*" }
+    if ($channelLine) { $channel = $channelLine.Trim() }
+}
+
+if ($channel -like "*VOLUME_KMSCLIENT*" -and -not $isDomainJoined -and -not $isCracked) {
+    $evidenceList += "Hệ thống kích hoạt bằng kênh KMS Volume trên máy cá nhân không gia nhập miền doanh nghiệp."
+}
+
+# Determine Risk Level and Confidence Score
+if ($isCracked) {
+    $confidenceScore = 1.0
+    $riskLevel = "High"
+    if ($crackMethod -eq "Ohook") {
+        $recommendation = "Gỡ cài đặt bản Office lậu, chạy lệnh dọn dẹp registry sppc.dll và mua bản quyền chính hãng."
+    } else {
+        $recommendation = "Gỡ sạch các công cụ giả lập KMS lậu, xóa bỏ cấu hình KMS Registry ghi đè và kích hoạt lại bằng khóa chính hãng."
     }
 } else {
-    Write-Host " [+] Không phát hiện tệp tin nghi vấn nào chứa các từ khóa né check." -ForegroundColor Green
+    if ($evidenceList.Count -gt 0) {
+        $isCracked = $true
+        $confidenceScore = 0.7
+        $crackMethod = "KMS"
+        $riskLevel = "Medium"
+        $recommendation = "Kiểm tra lại cấu hình kích hoạt mạng. Có thể hệ thống đang trỏ tới máy chủ kích hoạt không chính thức."
+    } else {
+        $isCracked = $false
+        $confidenceScore = 1.0
+        $crackMethod = "None"
+        $riskLevel = "None"
+        $recommendation = "Không cần hành động. Hệ thống đang hoạt động an toàn."
+    }
 }
+
+# Construct JSON Output
+$jsonObj = [PSCustomObject]@{
+    is_cracked       = [bool]$isCracked
+    confidence_score = [double]$confidenceScore
+    crack_method     = $crackMethod
+    detected_evidence = [string[]]$evidenceList
+    risk_level       = $riskLevel
+    recommendation   = $recommendation
+}
+
+$jsonOutput = $jsonObj | ConvertTo-Json -Depth 5
+
+# Display JSON output clearly for parent program parsing
+Write-Host " KẾT QUẢ PHÂN TÍCH AN TOÀN HỆ THỐNG (JSON):" -ForegroundColor Green
+Write-Host "================================================================================" -ForegroundColor Cyan
+Write-Host $jsonOutput
+Write-Host "================================================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # 2. DEEP PORT & NETSTAT SCAN
-Write-Host "[2] QUÉT CỔNG MẠNG CAN THIỆP & KẾT NỐI KHẢ NGHI" -ForegroundColor Blue -Bold
+Write-Host "[2] QUÉT CỔNG MẠNG CAN THIỆP & KẾT NỐI KHẢ NGHI" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 Write-Host " Đang quét các kết nối mạng..." -ForegroundColor Yellow
 
@@ -187,7 +336,7 @@ if ($portTamperDetected) {
 Write-Host ""
 
 # 3. DEEP SECURITY CONFIGURATION AUDIT
-Write-Host "[3] KIỂM TRA SÂU CẤU HÌNH BẢO MẬT HỆ THỐNG" -ForegroundColor Blue -Bold
+Write-Host "[3] KIỂM TRA SÂU CẤU HÌNH BẢO MẬT HỆ THỐNG" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 $secTamper = $false
 $secReasons = @()
@@ -234,7 +383,7 @@ if ($secTamper) {
 Write-Host ""
 
 # 4. GIAI ĐOẠN 2 ASSESSMENT
-Write-Host "[4] KẾT LUẬN GIAI ĐOẠN 2" -ForegroundColor Blue -Bold
+Write-Host "[4] KẾT LUẬN GIAI ĐOẠN 2" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 
 if ($foundEvasiveFiles.Count -gt 0 -or $portTamperDetected -or $secTamper) {
