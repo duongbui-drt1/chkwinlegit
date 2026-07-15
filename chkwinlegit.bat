@@ -37,7 +37,7 @@ Write-Host ""
 # 2. WINDOWS ACTIVATION STATUS
 Write-Host "[2] TRẠNG THÁI BẢN QUYỀN WINDOWS" -ForegroundColor Blue -Bold
 Write-Host "--------------------------------------------------------------------------------"
-$winProducts = Get-CimInstance -Namespace root\Licensing\SoftwareLicensing -ClassName SoftwareLicensingProduct | Where-Object { $_.PartialProductKey -and $_.Description -like "*Windows*" }
+$winProducts = Get-CimInstance -Namespace root\CIMV2 -ClassName SoftwareLicensingProduct | Where-Object { $_.PartialProductKey -and $_.Description -like "*Windows*" }
 
 $channel = "Không xác định"
 
