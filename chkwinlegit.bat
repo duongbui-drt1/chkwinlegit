@@ -13,7 +13,7 @@ $host.UI.RawUI.WindowTitle = "HỆ THỐNG KIỂM TRA BẢN QUYỀN WINDOWS / OF
 # Check for Administrative Privileges
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "================================================================================" -ForegroundColor Red
-    Write-Host " YÊU CẦU QUYỀN ADMINISTRATOR / ADMINISTRATOR PRIVILEGES REQUIRED" -ForegroundColor Yellow -Bold
+    Write-Host " YÊU CẦU QUYỀN ADMINISTRATOR / ADMINISTRATOR PRIVILEGES REQUIRED" -ForegroundColor Yellow
     Write-Host "================================================================================" -ForegroundColor Red
     Write-Host "Đang yêu cầu quyền Administrator để thực hiện quét sâu hệ thống..."
     Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$env:BAT_PATH`"" -Verb RunAs
@@ -21,13 +21,13 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host "   HỆ THỐNG KIỂM TRA BẢN QUYỀN WINDOWS & OFFICE CHÍNH HÃNG (chkwinlegit)" -ForegroundColor White -Bold
+Write-Host "   HỆ THỐNG KIỂM TRA BẢN QUYỀN WINDOWS & OFFICE CHÍNH HÃNG (chkwinlegit)" -ForegroundColor White
 Write-Host "   Phiên bản: $version | $credit" -ForegroundColor White
 Write-Host "================================================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # 1. SYSTEM METADATA
-Write-Host "[1] THÔNG TIN HỆ THỐNG & THỜI GIAN CÀI ĐẶT" -ForegroundColor Blue -Bold
+Write-Host "[1] THÔNG TIN HỆ THỐNG & THỜI GIAN CÀI ĐẶT" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
 $formattedDate = "Không xác định"
@@ -55,7 +55,7 @@ Write-Host " * Machine GUID  : $machineGuid"
 Write-Host ""
 
 # 2. WINDOWS ACTIVATION STATUS
-Write-Host "[2] TRẠNG THÁI BẢN QUYỀN WINDOWS" -ForegroundColor Blue -Bold
+Write-Host "[2] TRẠNG THÁI BẢN QUYỀN WINDOWS" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 $winProducts = Get-CimInstance -Namespace root\CIMV2 -ClassName SoftwareLicensingProduct | Where-Object { $_.PartialProductKey -and $_.Description -like "*Windows*" }
 
@@ -75,7 +75,7 @@ if ($winProducts) {
         }
         $color = if ($product.LicenseStatus -eq 1) { "Green" } else { "Red" }
         Write-Host " * Trạng thái    : " -NoNewline
-        Write-Host $status -ForegroundColor $color -Bold
+        Write-Host $status -ForegroundColor $color
         Write-Host " * Mô tả bản dịch: $($product.Description)"
         
         # Get activation channel using slmgr
@@ -92,7 +92,7 @@ if ($winProducts) {
 Write-Host ""
 
 # 3. OFFICE ACTIVATION STATUS
-Write-Host "[3] TRẠNG THÁI BẢN QUYỀN MICROSOFT OFFICE" -ForegroundColor Blue -Bold
+Write-Host "[3] TRẠNG THÁI BẢN QUYỀN MICROSOFT OFFICE" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 
 $programFiles = [Environment]::GetFolderPath("ProgramFiles")
@@ -117,7 +117,7 @@ if ($osppPaths.Count -eq 0) {
         if ($relevantLines) {
             foreach ($line in $relevantLines) {
                 if ($line -match "LICENSED") {
-                    Write-Host "   $($line.Trim())" -ForegroundColor Green -Bold
+                    Write-Host "   $($line.Trim())" -ForegroundColor Green
                 } elseif ($line -match "NOT LICENSED") {
                     Write-Host "   $($line.Trim())" -ForegroundColor Red
                 } else {
@@ -132,7 +132,7 @@ if ($osppPaths.Count -eq 0) {
 Write-Host ""
 
 # 4. DEEP PIRACY SCAN & TAMPERING DETECTION
-Write-Host "[4] QUÉT SÂU HỆ THỐNG PHÁT HIỆN CAN THIỆP & BẢN QUYỀN LẬU" -ForegroundColor Blue -Bold
+Write-Host "[4] QUÉT SÂU HỆ THỐNG PHÁT HIỆN CAN THIỆP & BẢN QUYỀN LẬU" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 $tamperDetected = $false
 $suspiciousDetected = $false
@@ -526,7 +526,7 @@ if ($isBypassedInstall) {
 Write-Host ""
 
 # 5. FINAL ASSESSMENT
-Write-Host "[5] ĐÁNH GIÁ CHUNG HỆ THỐNG / FINAL ASSESSMENT" -ForegroundColor Blue -Bold
+Write-Host "[5] ĐÁNH GIÁ CHUNG HỆ THỐNG / FINAL ASSESSMENT" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 Write-Host " Báo cáo chi tiết các thành phần hệ thống:"
 
@@ -541,23 +541,23 @@ if ($compSystem) {
 # Windows status
 Write-Host "  * Hệ thống Windows : " -NoNewline
 if ($winKms -or $winGuidKms -or ($channel -like "*KMSCLIENT*" -and -not $isDomainJoined -and $tamperDetected)) {
-    Write-Host "PHÁT HIỆN CAN THIỆP (KMS/KMS38/Bypass)" -ForegroundColor Red -Bold
+    Write-Host "PHÁT HIỆN CAN THIỆP (KMS/KMS38/Bypass)" -ForegroundColor Red
 } elseif ($channel -like "*KMSCLIENT*" -and -not $isDomainJoined) {
-    Write-Host "NGHI VẤN (KMS Volume cá nhân)" -ForegroundColor Yellow -Bold
+    Write-Host "NGHI VẤN (KMS Volume cá nhân)" -ForegroundColor Yellow
 } elseif ($winProducts -and $winProducts[0].LicenseStatus -eq 1) {
-    Write-Host "CHÍNH HÃNG (Genuine - $channel)" -ForegroundColor Green -Bold
+    Write-Host "CHÍNH HÃNG (Genuine - $channel)" -ForegroundColor Green
 } else {
-    Write-Host "CHƯA KÍCH HOẠT / HẾT HẠN" -ForegroundColor Red -Bold
+    Write-Host "CHƯA KÍCH HOẠT / HẾT HẠN" -ForegroundColor Red
 }
 
 # Office status
 Write-Host "  * Microsoft Office : " -NoNewline
 if ($ohookDetected) {
-    Write-Host "PHÁT HIỆN CRACK (Bypass Ohook sppc.dll)" -ForegroundColor Red -Bold
+    Write-Host "PHÁT HIỆN CRACK (Bypass Ohook sppc.dll)" -ForegroundColor Red
 } elseif ($officeKms -or $officeGuidKms) {
-    Write-Host "PHÁT HIỆN CAN THIỆP (KMS Redirect)" -ForegroundColor Red -Bold
+    Write-Host "PHÁT HIỆN CAN THIỆP (KMS Redirect)" -ForegroundColor Red
 } elseif ($osppPaths.Count -gt 0) {
-    Write-Host "ĐÃ CÀI ĐẶT (Cần xem chi tiết trạng thái ở mục [3])" -ForegroundColor Cyan -Bold
+    Write-Host "ĐÃ CÀI ĐẶT (Cần xem chi tiết trạng thái ở mục [3])" -ForegroundColor Cyan
 } else {
     Write-Host "KHÔNG PHÁT HIỆN CÀI ĐẶT" -ForegroundColor Gray
 }
@@ -565,33 +565,33 @@ if ($ohookDetected) {
 # Defender status
 Write-Host "  * Trình bảo vệ     : " -NoNewline
 if ($defenderTampered) {
-    Write-Host "BÌ CAN THIỆP / VÔ HIỆU HÓA" -ForegroundColor Red -Bold
+    Write-Host "BÌ CAN THIỆP / VÔ HIỆU HÓA" -ForegroundColor Red
 } else {
-    Write-Host "BẢO VỆ TỐT (Hoạt động)" -ForegroundColor Green -Bold
+    Write-Host "BẢO VỆ TỐT (Hoạt động)" -ForegroundColor Green
 }
 
 # BitLocker status
 Write-Host "  * Mã hóa BitLocker : " -NoNewline
 if ($bitlockerActive) {
-    Write-Host "ĐÃ KÍCH HOẠT (Bảo vệ dữ liệu)" -ForegroundColor Green -Bold
+    Write-Host "ĐÃ KÍCH HOẠT (Bảo vệ dữ liệu)" -ForegroundColor Green
 } else {
-    Write-Host "TẮT (Chưa mã hóa)" -ForegroundColor Yellow -Bold
+    Write-Host "TẮT (Chưa mã hóa)" -ForegroundColor Yellow
 }
 
 # Third-party Apps (Adobe & CAD)
 Write-Host "  * Adobe & Autodesk : " -NoNewline
 if ($crackAppsFound) {
-    Write-Host "PHÁT HIỆN DẤU HIỆU BẺ KHÓA (Patch/Firewall/Hosts)" -ForegroundColor Red -Bold
+    Write-Host "PHÁT HIỆN DẤU HIỆU BẺ KHÓA (Patch/Firewall/Hosts)" -ForegroundColor Red
 } else {
-    Write-Host "KHÔNG PHÁT HIỆN CAN THIỆP" -ForegroundColor Green -Bold
+    Write-Host "KHÔNG PHÁT HIỆN CAN THIỆP" -ForegroundColor Green
 }
 
 # Windows 11 Compatibility Bypass
 Write-Host "  * Tiêu chuẩn Win 11: " -NoNewline
 if ($isBypassedInstall) {
-    Write-Host "ĐÃ VƯỢT YÊU CẦU (Bypassed Hardware)" -ForegroundColor Yellow -Bold
+    Write-Host "ĐÃ VƯỢT YÊU CẦU (Bypassed Hardware)" -ForegroundColor Yellow
 } else {
-    Write-Host "ĐẠT TIÊU CHUẨN / KHÔNG ÁP DỤNG" -ForegroundColor Green -Bold
+    Write-Host "ĐẠT TIÊU CHUẨN / KHÔNG ÁP DỤNG" -ForegroundColor Green
 }
 Write-Host ""
 
@@ -610,24 +610,24 @@ if ($tamperDetected) {
 }
 
 if ($assessment -eq "GENUINE") {
-    Write-Host " ========================================================================" -ForegroundColor Green -Bold
-    Write-Host "    KẾT QUẢ CHUNG: HỆ THỐNG HOÀN TOÀN CHÍNH HÃNG (GENUINE / CLEAN)" -ForegroundColor Green -Bold
-    Write-Host " ========================================================================" -ForegroundColor Green -Bold
+    Write-Host " ========================================================================" -ForegroundColor Green
+    Write-Host "    KẾT QUẢ CHUNG: HỆ THỐNG HOÀN TOÀN CHÍNH HÃNG (GENUINE / CLEAN)" -ForegroundColor Green
+    Write-Host " ========================================================================" -ForegroundColor Green
     Write-Host "  * Không phát hiện bất kỳ dấu vết can thiệp, tệp tin crack, dịch vụ lậu," -ForegroundColor Green
     Write-Host "  * hay cấu hình chuyển hướng KMS giả mạo nào trên thiết bị này." -ForegroundColor Green
     Write-Host "  * Trình bảo vệ Windows Defender hoạt động an toàn." -ForegroundColor Green
 } elseif ($assessment -eq "SUSPICIOUS") {
-    Write-Host " ========================================================================" -ForegroundColor Yellow -Bold
-    Write-Host "    KẾT QUẢ CHUNG: PHÁT HIỆN DẤU HIỆU NGHI VẤN (SUSPICIOUS)" -ForegroundColor Yellow -Bold
-    Write-Host " ========================================================================" -ForegroundColor Yellow -Bold
+    Write-Host " ========================================================================" -ForegroundColor Yellow
+    Write-Host "    KẾT QUẢ CHUNG: PHÁT HIỆN DẤU HIỆU NGHI VẤN (SUSPICIOUS)" -ForegroundColor Yellow
+    Write-Host " ========================================================================" -ForegroundColor Yellow
     Write-Host "  * Hệ thống phát hiện các cấu hình nghi vấn sau:" -ForegroundColor Yellow
     foreach ($reason in $suspiciousReasons) {
         Write-Host "      -> $reason" -ForegroundColor Yellow
     }
 } else {
-    Write-Host " ========================================================================" -ForegroundColor Red -Bold
-    Write-Host "    KẾT QUẢ CHUNG: PHÁT HIỆN CAN THIỆP BẢN QUYỀN LẬU / BẢO MẬT BỊ TẮT" -ForegroundColor Red -Bold
-    Write-Host " ========================================================================" -ForegroundColor Red -Bold
+    Write-Host " ========================================================================" -ForegroundColor Red
+    Write-Host "    KẾT QUẢ CHUNG: PHÁT HIỆN CAN THIỆP BẢN QUYỀN LẬU / BẢO MẬT BỊ TẮT" -ForegroundColor Red
+    Write-Host " ========================================================================" -ForegroundColor Red
     Write-Host "  * Thiết bị phát hiện các vấn đề nghiêm trọng:" -ForegroundColor Red
     if ($winKms -or $winGuidKms) { 
         Write-Host "      - Windows bị can thiệp máy chủ KMS hoặc cấu hình KMS38." -ForegroundColor Red 
