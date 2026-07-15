@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag to release (e.g. vC.00, vC.01, vC.02)'
+        description: 'Version tag to release (e.g. vC.00, vC.01, vC.02, vA.00)'
         required: true
         type: string
       commit_sha:
@@ -48,6 +48,8 @@ jobs:
           name: Release ${{ steps.resolve.outputs.tag }}
           files: |
             repo_source/chkwinlegit.bat
+            repo_source/chkwinlegit_deep.bat
+          fail_on_unmatched_files: false
           draft: false
           prerelease: false
           generate_release_notes: true
