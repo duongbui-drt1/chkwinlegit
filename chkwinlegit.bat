@@ -4,7 +4,7 @@
 Clear-Host
 
 # Version & Credit info
-$version = "C.02"
+$version = "A.00"
 $credit = "Made by Duli Software & Antigravity"
 
 # Set console title
@@ -17,6 +17,21 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     Write-Host "================================================================================" -ForegroundColor Red
     Write-Host "Đang yêu cầu quyền Administrator để thực hiện quét sâu hệ thống..."
     Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$env:BAT_PATH`"" -Verb RunAs
+    exit
+}
+
+# Mutual Dependency Check (If missing stage 2 script, do not run)
+$scriptDir = Split-Path $env:BAT_PATH -Parent
+$deepScriptPath = Join-Path $scriptDir "chkwinlegit_deep.bat"
+if (-not (Test-Path $deepScriptPath)) {
+    Write-Host "================================================================================" -ForegroundColor Red
+    Write-Host " [LỖI THIẾU TỆP TIN] THIẾU TỆP TIN CHẨN ĐOÁN GIAI ĐOẠN 2" -ForegroundColor Red
+    Write-Host "================================================================================" -ForegroundColor Red
+    Write-Host "Không tìm thấy tệp tin: chkwinlegit_deep.bat" -ForegroundColor Yellow
+    Write-Host "Ứng dụng yêu cầu đầy đủ 2 tệp chkwinlegit.bat và chkwinlegit_deep.bat để hoạt động." -ForegroundColor Yellow
+    Write-Host "Vui lòng tải lại đầy đủ bộ tệp tin chkwinlegit."
+    Write-Host "Nhấn phím bất kỳ để thoát..."
+    [void][System.Console]::ReadKey($true)
     exit
 }
 
@@ -644,5 +659,13 @@ if ($assessment -eq "GENUINE") {
 }
 Write-Host ""
 Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host "Nhấn phím bất kỳ để thoát..."
-[void][System.Console]::ReadKey($true)
+Write-Host "Bạn có muốn tiến hành quét sâu Giai đoạn 2 (Quét tệp né check, cổng mạng, bảo mật)? [Y/N]: " -NoNewline
+$response = Read-Host
+if ($response -eq "Y" -or $response -eq "y") {
+    Write-Host "Đang khởi chạy Giai đoạn 2..." -ForegroundColor Yellow
+    cmd.exe /c "`"$deepScriptPath`""
+} else {
+    Write-Host "Đã hủy bỏ quét sâu Giai đoạn 2." -ForegroundColor Yellow
+    Write-Host "Nhấn phím bất kỳ để thoát..."
+    [void][System.Console]::ReadKey($true)
+}
