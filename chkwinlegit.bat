@@ -412,14 +412,14 @@ if ($amtlibFound.Count -gt 0) {
 }
 
 # Check Firewall block rules blocking Adobe & Autodesk outbound
-$adobeRules = Get-NetFirewallRule -DisplayName "*Adobe*" -Action Block -ErrorAction SilentlyContinue
+$adobeRules = Get-NetFirewallRule -DisplayName "*Adobe*" -ErrorAction SilentlyContinue | Where-Object { $_.Action -eq "Block" }
 if ($adobeRules) {
     $crackAppsFound = $true
     $tamperDetected = $true
     $crackAppDetails += "Phát hiện $($adobeRules.Count) quy tắc chặn Tường lửa (Firewall) đối với sản phẩm Adobe (Dấu hiệu Adobe GenP/Monkrus)."
 }
 
-$autodeskRules = Get-NetFirewallRule -DisplayName "*Autodesk*" -Action Block -ErrorAction SilentlyContinue
+$autodeskRules = Get-NetFirewallRule -DisplayName "*Autodesk*" -ErrorAction SilentlyContinue | Where-Object { $_.Action -eq "Block" }
 if ($autodeskRules) {
     $crackAppsFound = $true
     $tamperDetected = $true
