@@ -3,7 +3,7 @@
 # PowerShell code starts here...
 Clear-Host
 
-$version = "A.01"
+$version = "A.02"
 $credit = "Made by Duli Software & Antigravity"
 
 # Set console title

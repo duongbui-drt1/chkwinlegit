@@ -4,7 +4,7 @@
 Clear-Host
 
 # Version & Credit info
-$version = "A.01"
+$version = "A.02"
 $credit = "Made by Duli Software & Antigravity"
 
 # Set console title
