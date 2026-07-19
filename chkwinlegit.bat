@@ -954,30 +954,71 @@ Write-Host "--------------------------------------------------------------------
 $officeTaskFound = $false
 $officeTaskReasons = @()
 
-$suspiciousOfficeTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
-    # Task tên chứa từ khóa liên quan Office + activation/KMS
-    ($_.TaskName -match "Office|OSPP|OfficeSoftware") -and
-    ($_.TaskName -match "KMS|Activat|Renew|Auto|Pico|vlmcs|crack|bypass|patch")
-}
+# Whitelist: tên task Microsoft hợp lệ — KHÔNG được flag
+$legitimateOfficeTaskPatterns = @(
+    "Office Automatic Updates",
+    "Office ClickToRun",
+    "Office Feature Updates",
+    "Office Serviceability",
+    "OfficeBackgroundTask",
+    "OfficeTelemetry",
+    "Microsoft Office",
+    "Office OOBE"
+)
 
-if ($suspiciousOfficeTasks) {
-    foreach ($task in $suspiciousOfficeTasks) {
-        $officeTaskFound = $true
-        $actions = ($task.Actions | ForEach-Object { $_.Execute }) -join ", "
-        $officeTaskReasons += "Task: '$($task.TaskName)' (Path: $($task.TaskPath)) | Action: $actions"
-    }
-}
+# Whitelist: action path thuộc thư mục C2R/Office chính hãng của Microsoft
+$legitimateActionPaths = @(
+    "ClickToRun",
+    "Microsoft Shared",
+    "Common Files\\Microsoft",
+    "Microsoft Office",
+    "Program Files.*Office"
+)
 
-# Cũng kiểm tra task có action gọi đến ospp.vbs, vlmcs, hoặc kms
 $allTasks = Get-ScheduledTask -ErrorAction SilentlyContinue
+
 foreach ($task in $allTasks) {
+    $taskName   = $task.TaskName
+    $taskPath   = $task.TaskPath
     $taskAction = ($task.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join " "
-    if ($taskAction -match "ospp\.vbs.*inpkey|vlmcs|kmsauto|kmspico|autokms") {
-        if ($officeTaskReasons -notcontains "Task: '$($task.TaskName)'") {
-            $officeTaskFound = $true
-            $officeTaskReasons += "Task: '$($task.TaskName)' có action đáng ngờ: $taskAction"
+
+    # ── Kiểm tra theo Action (chắc chắn nhất) ───────────────────────────────
+    # Bất kỳ task nào gọi ospp.vbs /inpkey (cài key mới), vlmcs, kmsauto, kmspico, autokms
+    $actionIsSuspicious = $taskAction -match "ospp\.vbs.*(\/inpkey|\/act|\/rearm)|vlmcs|kmsauto|kmspico|autokms|vlmcsd|SppExtComObj"
+
+    # ── Kiểm tra theo tên task (chỉ dùng keyword rất cụ thể) ────────────────
+    # Không dùng "Auto" hay "Activat" vì quá rộng
+    $nameIsSuspicious = $taskName -match "KMSAuto|KMSpico|AutoKMS|vlmcs|KMSVLALL|MAS_Office|OSPP.*KMS|Office.*KMS|crack|bypass"
+
+    if (-not $actionIsSuspicious -and -not $nameIsSuspicious) { continue }
+
+    # ── Lọc whitelist: loại bỏ task Microsoft hợp lệ ────────────────────────
+    $isLegitimate = $false
+
+    # Kiểm tra tên task có khớp whitelist không
+    foreach ($legit in $legitimateOfficeTaskPatterns) {
+        if ($taskName -match [regex]::Escape($legit)) { $isLegitimate = $true; break }
+    }
+
+    # Kiểm tra action path có thuộc thư mục Microsoft hợp lệ không
+    if (-not $isLegitimate) {
+        foreach ($legitPath in $legitimateActionPaths) {
+            if ($taskAction -match $legitPath) { $isLegitimate = $true; break }
         }
     }
+
+    # Task từ \Microsoft\Office\ với action ClickToRun là hợp lệ
+    if (-not $isLegitimate -and $taskPath -like "*\Microsoft\Office*") {
+        if ($taskAction -match "ClickToRun|OfficeC2R|OfficeBackground|OfficeTelemetry") {
+            $isLegitimate = $true
+        }
+    }
+
+    if ($isLegitimate) { continue }
+
+    # Task vượt qua tất cả bộ lọc → thực sự đáng ngờ
+    $officeTaskFound = $true
+    $officeTaskReasons += "Task: '$taskName' (Path: $taskPath) | Action: $taskAction"
 }
 
 if ($officeTaskFound) {
