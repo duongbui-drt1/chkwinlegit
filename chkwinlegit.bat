@@ -130,25 +130,73 @@ if ($isC2RInstall) {
     }
 }
 
-# ── 3.2 Detect signed-in Microsoft account (Identity) ───────────────────────
+# ── 3.2 Detect signed-in Microsoft account — 4 phương pháp fallback ─────────
 $linkedAccount = ""
-$identityKey   = "HKCU:\Software\Microsoft\Office\16.0\Common\Identity"
-if (Test-Path $identityKey) {
-    $idProps = Get-ItemProperty -Path $identityKey -ErrorAction SilentlyContinue
-    if ($idProps.SignedInADUserObjectId -or $idProps.ADUserObjectId) {
-        # Domain / Entra ID account
-        $linkedAccount = $idProps.SignedInADUserObjectId
+
+# [M1] Quét tất cả subkey trong Identity\Identities, tìm mọi property chứa @
+$identityStoreKey = "HKCU:\Software\Microsoft\Office\16.0\Common\Identity\Identities"
+if (Test-Path $identityStoreKey) {
+    $idSubkeys = Get-ChildItem -Path $identityStoreKey -ErrorAction SilentlyContinue
+    foreach ($idKey in $idSubkeys) {
+        if ($linkedAccount -ne "") { break }
+        $idDetail = Get-ItemProperty -Path $idKey.PSPath -ErrorAction SilentlyContinue
+        if (-not $idDetail) { continue }
+        # Ưu tiên: check các property tên biết trước
+        foreach ($prop in @("EmailAddress","PreferredName","FriendlyName","DisplayName","UPN","SignInName","Username")) {
+            $val = $idDetail.$prop
+            if ($val -and $val -match "@") { $linkedAccount = $val; break }
+        }
+        # Fallback: quét tất cả property còn lại tìm chuỗi email
+        if ($linkedAccount -eq "") {
+            $idDetail.PSObject.Properties | Where-Object {
+                $_.MemberType -eq "NoteProperty" -and
+                $_.Value -is [string] -and
+                $_.Value -match "^[^@\s]+@[^@\s]+\.[^@\s]+$"
+            } | Select-Object -First 1 | ForEach-Object { $linkedAccount = $_.Value }
+        }
     }
 }
-# Fallback: check identity store for MSA/AAD email
-$identityStoreKey = "HKCU:\Software\Microsoft\Office\16.0\Common\Identity\Identities"
-if ($linkedAccount -eq "" -and (Test-Path $identityStoreKey)) {
-    $ids = Get-ChildItem -Path $identityStoreKey -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($ids) {
-        $idDetail = Get-ItemProperty -Path $ids.PSPath -ErrorAction SilentlyContinue
-        if ($idDetail.EmailAddress) { $linkedAccount = $idDetail.EmailAddress }
-        elseif ($idDetail.FriendlyName) { $linkedAccount = $idDetail.FriendlyName }
+
+# [M2] Identity root key — AAD/Entra work accounts
+if ($linkedAccount -eq "") {
+    $identityKey = "HKCU:\Software\Microsoft\Office\16.0\Common\Identity"
+    if (Test-Path $identityKey) {
+        $idRoot = Get-ItemProperty -Path $identityKey -ErrorAction SilentlyContinue
+        foreach ($prop in @("ADAccountNameUpn","SignedInADUserObjectId","EmailAddress","PreferredUsername")) {
+            $val = $idRoot.$prop
+            if ($val -and $val -match "@") { $linkedAccount = $val; break }
+        }
     }
+}
+
+# [M3] Office license token files (%LOCALAPPDATA%\Microsoft\Office\Licenses)
+if ($linkedAccount -eq "") {
+    $licDir = Join-Path $env:LOCALAPPDATA "Microsoft\Office\Licenses"
+    if (Test-Path $licDir) {
+        Get-ChildItem -Path $licDir -File -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($linkedAccount -ne "") { return }
+            try {
+                $raw = Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue
+                if ($raw -match '"([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})"') {
+                    $linkedAccount = $Matches[1]
+                }
+            } catch {}
+        }
+    }
+}
+
+# [M4] Windows Credential Manager — đọc qua cmdkey /list
+if ($linkedAccount -eq "") {
+    try {
+        $cmdOut = cmdkey /list 2>$null | Out-String
+        if ($cmdOut -match "([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})") {
+            $candidate = $Matches[1]
+            # Lọc bỏ các email hệ thống không phải user account
+            if ($candidate -notmatch "microsoft\.com$|live\.com$|windowslive\.com$|^no-reply") {
+                $linkedAccount = $candidate
+            }
+        }
+    } catch {}
 }
 
 # Display C2R / subscription summary
