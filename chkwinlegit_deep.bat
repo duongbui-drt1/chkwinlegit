@@ -161,6 +161,7 @@ $ohookPaths = @(
 )
 foreach ($path in $ohookPaths) {
     if (Test-Path $path) {
+        $detectedCrackFiles += $path
         $isCracked = $true
         $crackMethod = "Ohook"
         $evidenceList += "Phát hiện tệp tin Ohook sppc.dll bypass hoạt động tại: $path"
