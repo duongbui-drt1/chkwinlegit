@@ -989,6 +989,160 @@ if ($officeTaskFound) {
 }
 Write-Host ""
 
+# 4.18 OEM Pre-installed License Detection
+Write-Host " [4.18] Kiểm tra bản quyền OEM (cài sẵn từ nhà sản xuất / laptop mới)..." -ForegroundColor Blue
+Write-Host "--------------------------------------------------------------------------------"
+$isOemWindows  = $false
+$isOemOffice   = $false
+$oemWinDetails = @()
+$oemOffDetails = @()
+$oemIssues     = @()
+
+# ── Thông tin phần cứng / Nhà sản xuất ────────────────────────────────────
+$cs   = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+$bios = Get-CimInstance -ClassName Win32_BIOS          -ErrorAction SilentlyContinue
+$mfr  = if ($cs)   { $cs.Manufacturer.Trim() }   else { "Không xác định" }
+$mdl  = if ($cs)   { $cs.Model.Trim() }           else { "Không xác định" }
+$biosV = if ($bios) { "$($bios.Manufacturer.Trim()) - $($bios.SMBIOSBIOSVersion)" } else { "Không xác định" }
+
+Write-Host "   * Nhà sản xuất  : $mfr" -ForegroundColor Cyan
+Write-Host "   * Model máy     : $mdl" -ForegroundColor Cyan
+Write-Host "   * BIOS/UEFI     : $biosV" -ForegroundColor Cyan
+
+$knownOemBrands = @("Dell","HP","Hewlett","Lenovo","Acer","Asus","Samsung","Toshiba","Sony","MSI","LG","Huawei","Microsoft Surface","Panasonic","Fujitsu","Razer")
+$isKnownOemBrand = ($knownOemBrands | Where-Object { $mfr -match $_ }).Count -gt 0
+if ($isKnownOemBrand) {
+    Write-Host "   * Thương hiệu OEM: Đã nhận diện ($mfr)" -ForegroundColor Green
+} else {
+    Write-Host "   * Thương hiệu OEM: Không nhận ra thương hiệu OEM phổ biến ($mfr)" -ForegroundColor Yellow
+}
+Write-Host ""
+
+# ── Kiểm tra Windows OEM ────────────────────────────────────────────────────
+Write-Host "   [Windows OEM]" -ForegroundColor White
+
+# OA3 key nhúng trong UEFI firmware (Windows 8/10/11 OEM modern method)
+$slSvc = Get-CimInstance -ClassName SoftwareLicensingService -ErrorAction SilentlyContinue
+if ($slSvc -and $slSvc.OA3xOriginalProductKey) {
+    $isOemWindows = $true
+    $keyMasked = $slSvc.OA3xOriginalProductKey -replace "^(.{5})-(.{5})-(.{5})-(.{5})-(.{5})$", '$1-XXXXX-XXXXX-XXXXX-$5'
+    $oemWinDetails += "Tìm thấy khóa OA3 nhúng trong UEFI firmware: $keyMasked"
+} else {
+    $oemWinDetails += "[INFO] Không tìm thấy khóa OA3/UEFI (có thể là HWID Digital License hoặc máy để bàn)"
+}
+
+# Kênh kích hoạt Windows qua SoftwareLicensingProduct
+$winLicProds = Get-CimInstance -Namespace root\CIMV2 -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue |
+    Where-Object { $_.PartialProductKey -and $_.Description -like "*Windows*" }
+
+foreach ($p in $winLicProds) {
+    $desc = $p.Description
+    if ($desc -match "OEM_SLP") {
+        $isOemWindows = $true
+        $oemWinDetails += "Kênh kích hoạt: OEM_SLP (System Locked Pre-installation — gắn với BIOS/UEFI)"
+    } elseif ($desc -match "OEM_DM") {
+        $isOemWindows = $true
+        $oemWinDetails += "Kênh kích hoạt: OEM_DM (OEM Digital License — gắn với phần cứng)"
+    } elseif ($desc -match "OEM_NONSLP") {
+        $isOemWindows = $true
+        $oemWinDetails += "Kênh kích hoạt: OEM_NONSLP (OEM Non-SLP — CD key đi kèm máy)"
+    } elseif ($desc -match "OEMTA") {
+        $isOemWindows = $true
+        $oemWinDetails += "Kênh kích hoạt: OEM Tokenized Activation (OEMTA)"
+    }
+}
+
+# Digital Entitlement / HWID — kích hoạt hiện đại Windows 10/11 OEM
+$slmgrDlv = cscript //nologo C:\Windows\System32\slmgr.vbs /dlv 2>$null | Out-String
+if ($slmgrDlv -match "Digital") {
+    $isOemWindows = $true
+    $oemWinDetails += "Kích hoạt bằng Digital License (HWID Entitlement) — phương thức OEM phổ biến nhất trên Windows 10/11"
+}
+if ($slmgrDlv -match "OEM") {
+    $isOemWindows = $true
+}
+
+# Kiểm tra thêm: nếu OA3 key nhưng Windows đang dùng key khác (bất thường)
+if ($slSvc -and $slSvc.OA3xOriginalProductKey -and $winLicProds) {
+    $currentPartialKey = ($winLicProds | Select-Object -First 1).PartialProductKey
+    $oa3Partial = $slSvc.OA3xOriginalProductKey -replace ".*-([A-Z0-9]{5})$", '$1'
+    if ($currentPartialKey -and $oa3Partial -and $currentPartialKey -ne $oa3Partial) {
+        $oemIssues += "Khóa OA3 trong UEFI (đuôi: $oa3Partial) KHÔNG KHỚP với khóa Windows hiện dùng (đuôi: $currentPartialKey) — có thể cài lại bằng key khác."
+    }
+}
+
+if ($isOemWindows) {
+    Write-Host "   [+] Windows có vẻ được cài sẵn/kích hoạt theo phương thức OEM:" -ForegroundColor Green
+} else {
+    Write-Host "   [~] Không phát hiện rõ kênh OEM cho Windows (Retail hoặc Volume?):" -ForegroundColor Yellow
+}
+foreach ($d in $oemWinDetails) {
+    if ($d -like "*\[INFO\]*") { Write-Host "      -> $d" -ForegroundColor DarkGray }
+    else { Write-Host "      -> $d" -ForegroundColor Cyan }
+}
+Write-Host ""
+
+# ── Kiểm tra Office OEM ─────────────────────────────────────────────────────
+Write-Host "   [Office OEM]" -ForegroundColor White
+
+if ($osppPaths.Count -eq 0) {
+    Write-Host "   [~] Không tìm thấy cài đặt Office để kiểm tra OEM." -ForegroundColor Yellow
+} else {
+    foreach ($osppPath in $osppPaths) {
+        $dOut = cscript //nologo "$osppPath" /dstatus 2>$null | Out-String
+
+        # OEM Office: LICENSE NAME chứa "OEM", "Perp", "OEMTA"
+        $licBlocks = [regex]::Matches($dOut, "LICENSE NAME:\s*(.+?)(?=LICENSE NAME:|$)", [System.Text.RegularExpressions.RegexOptions]::Singleline)
+        foreach ($blk in $licBlocks) {
+            $blockText = $blk.Value
+            $licName = ([regex]::Match($blockText, "LICENSE NAME:\s*(.+)")).Groups[1].Value.Trim()
+            $licStatus = ([regex]::Match($blockText, "LICENSE STATUS:\s*---(.+)---")).Groups[1].Value.Trim()
+            $licDesc = ([regex]::Match($blockText, "LICENSE DESCRIPTION:\s*(.+)")).Groups[1].Value.Trim()
+
+            $isOemBlock = ($licName -match "OEM|Perp|OEMTA|HomeStudent|HomeBusiness|HomeAndBusiness") -or
+                          ($licDesc -match "OEM|Perpetual|OEMTA")
+
+            if ($isOemBlock) {
+                $isOemOffice = $true
+                $statusColor = if ($licStatus -eq "LICENSED") { "Green" }
+                               elseif ($licStatus -eq "OOB_GRACE" -and $isM365Sub) { "Cyan" }
+                               else { "Yellow" }
+                $oemOffDetails += "Sản phẩm OEM: $licName | Trạng thái: $licStatus | Kênh: $licDesc"
+            }
+        }
+
+        # Nếu không parse được block, dùng regex đơn giản hơn
+        if (-not $isOemOffice) {
+            if ($dOut -match "OEM|OEMTA|Perpetual") {
+                $isOemOffice = $true
+                $oemOffDetails += "[INFO] Phát hiện từ khóa OEM/Perpetual trong output OSPP — xem chi tiết mục [3]"
+            }
+        }
+    }
+
+    if ($isOemOffice) {
+        Write-Host "   [+] Phát hiện Office được cài sẵn dạng OEM / Perpetual:" -ForegroundColor Green
+        foreach ($d in $oemOffDetails) {
+            if ($d -like "*\[INFO\]*") { Write-Host "      -> $d" -ForegroundColor DarkGray }
+            else { Write-Host "      -> $d" -ForegroundColor Cyan }
+        }
+    } else {
+        Write-Host "   [~] Không phát hiện Office OEM pre-install (Retail / Subscription / Không cài)." -ForegroundColor Yellow
+    }
+}
+
+# ── Cảnh báo bất thường OEM ────────────────────────────────────────────────
+if ($oemIssues.Count -gt 0) {
+    Write-Host ""
+    Write-Host "   [!] Phát hiện bất thường trong cấu hình OEM:" -ForegroundColor Red
+    foreach ($issue in $oemIssues) {
+        Write-Host "      -> $issue" -ForegroundColor Red
+    }
+    $suspiciousDetected = $true
+    $suspiciousReasons += "Bất thường OEM: " + ($oemIssues -join "; ")
+}
+Write-Host ""
+
 # 5. FINAL ASSESSMENT
 Write-Host "[5] ĐÁNH GIÁ CHUNG HỆ THỐNG / FINAL ASSESSMENT" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
