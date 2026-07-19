@@ -318,6 +318,11 @@ $tamperDetected = $false
 $suspiciousDetected = $false
 $suspiciousReasons = @()
 
+# Lấy thông tin domain sớm — dùng cho nhiều mục kiểm tra bên dưới
+$isDomainJoined = $false
+$compSystem = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+if ($compSystem) { $isDomainJoined = $compSystem.PartOfDomain }
+
 # 4.1 Check Windows KMS Host Registry
 Write-Host " [4.1] Kiểm tra cấu hình KMS Host của Windows..."
 $sppKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"
@@ -748,17 +753,246 @@ if ($isBypassedInstall) {
 }
 Write-Host ""
 
+# 4.13 Office KMS Server Tampering (enhanced)
+Write-Host " [4.13] Kiểm tra máy chủ KMS giả lập cho Office..." -ForegroundColor Blue
+Write-Host "--------------------------------------------------------------------------------"
+$officeKmsTamper = $false
+$officeKmsReasons = @()
+
+$officeKmsKeys = @(
+    "HKLM:\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform",
+    "HKLM:\SOFTWARE\Wow6432Node\Microsoft\OfficeSoftwareProtectionPlatform"
+)
+foreach ($kmsKey in $officeKmsKeys) {
+    if (Test-Path $kmsKey) {
+        $props = Get-ItemProperty -Path $kmsKey -ErrorAction SilentlyContinue
+        if ($props.KeyManagementServiceName) {
+            $kmsHost = $props.KeyManagementServiceName
+            # Flagged: loopback, known pirate hosts, hoặc bất kỳ non-Microsoft host nào
+            if ($kmsHost -match "127\.|localhost|kms8\.|kms\.digiboy|msguides|chinancce|lotro\.cc|kms\.li|kmsauto|vlmcs") {
+                $officeKmsTamper = $true
+                $officeKmsReasons += "Registry KMS Office trỏ tới máy chủ nghi vấn: '$kmsHost' (tại $kmsKey)"
+            } elseif ($kmsHost -ne "") {
+                $officeKmsReasons += "[INFO] Registry KMS Office trỏ tới: '$kmsHost' (có thể hợp lệ nếu máy trong domain doanh nghiệp)"
+            }
+        }
+        $kmsPort = $props.KeyManagementServicePort
+        if ($kmsPort -and $kmsPort -ne "1688") {
+            $officeKmsTamper = $true
+            $officeKmsReasons += "Cổng KMS Office bị thay đổi sang cổng lạ: $kmsPort (chuẩn: 1688)"
+        }
+    }
+}
+
+# Check OSPP cache/token path for active KMS token older than usual
+$osppCachePath = "$env:ProgramData\Microsoft\OfficeSoftwareProtectionPlatform"
+if (Test-Path $osppCachePath) {
+    $tokenFiles = Get-ChildItem -Path $osppCachePath -Filter "tokens.dat" -Recurse -ErrorAction SilentlyContinue
+    foreach ($tok in $tokenFiles) {
+        $ageDays = (Get-Date) - $tok.LastWriteTime | Select-Object -ExpandProperty TotalDays
+        if ($ageDays -lt 0) {
+            $officeKmsTamper = $true
+            $officeKmsReasons += "Tệp tokens.dat có ngày sửa đổi trong TƯƠNG LAI ($($tok.LastWriteTime)) — dấu hiệu giả mạo timestamp."
+        }
+    }
+}
+
+if ($officeKmsTamper) {
+    Write-Host "   [!] Phát hiện dấu hiệu KMS giả lập hoặc can thiệp máy chủ kích hoạt Office!" -ForegroundColor Red
+    foreach ($r in $officeKmsReasons) {
+        if ($r -like "*\[INFO\]*") { Write-Host "      -> $r" -ForegroundColor DarkGray }
+        else { Write-Host "      -> $r" -ForegroundColor Red; $tamperDetected = $true }
+    }
+} else {
+    Write-Host "   [+] Không phát hiện cấu hình KMS giả lập cho Office." -ForegroundColor Green
+    foreach ($r in $officeKmsReasons) {
+        if ($r -like "*\[INFO\]*") { Write-Host "      -> $r" -ForegroundColor DarkGray }
+    }
+}
+Write-Host ""
+
+# 4.14 Office Volume License trên máy cá nhân không thuộc domain (Retail→Volume conversion)
+Write-Host " [4.14] Kiểm tra chuyển đổi Retail -> Volume license (GVLK) trên máy cá nhân..." -ForegroundColor Blue
+Write-Host "--------------------------------------------------------------------------------"
+$officeGvlkSuspect = $false
+$officeGvlkReasons = @()
+
+# Đọc OSPP nếu chưa có (tái sử dụng $osppPaths từ section [3])
+if ($osppPaths.Count -gt 0 -and -not $isDomainJoined) {
+    foreach ($osppPath in $osppPaths) {
+        $dstatusOut = cscript //nologo "$osppPath" /dstatus 2>$null | Out-String
+        # VOLUME_KMSCLIENT: dấu hiệu dùng GVLK (Generic Volume License Key)
+        if ($dstatusOut -match "VOLUME_KMSCLIENT") {
+            # Lấy tên sản phẩm gần nhất
+            $productNames = [regex]::Matches($dstatusOut, "LICENSE NAME:\s*(.+)") | ForEach-Object { $_.Groups[1].Value.Trim() }
+            $officeGvlkSuspect = $true
+            $officeGvlkReasons += "Phát hiện Office dùng kênh VOLUME_KMSCLIENT (GVLK) trên máy KHÔNG thuộc domain doanh nghiệp."
+            foreach ($pn in $productNames) {
+                $officeGvlkReasons += "   Sản phẩm: $pn"
+            }
+        }
+        # Kiểm tra thêm: nếu VOLUME + không có account M365
+        if ($dstatusOut -match "VOLUME" -and -not $isM365Sub) {
+            if (-not $officeGvlkSuspect) {
+                $officeGvlkReasons += "[INFO] License type là VOLUME nhưng không phát hiện account M365. Có thể hợp lệ nếu máy trong domain."
+            }
+        }
+    }
+}
+
+if ($officeGvlkSuspect) {
+    Write-Host "   [!] Nghi vấn chuyển đổi Retail -> Volume (GVLK) trên máy cá nhân!" -ForegroundColor Red
+    foreach ($r in $officeGvlkReasons) { Write-Host "      -> $r" -ForegroundColor Red }
+    $tamperDetected = $true
+} elseif ($isDomainJoined) {
+    Write-Host "   [+] Máy tính thuộc domain doanh nghiệp — Volume license KMS là hợp lệ." -ForegroundColor Green
+} else {
+    Write-Host "   [+] Không phát hiện dấu hiệu chuyển đổi Retail sang Volume GVLK trái phép." -ForegroundColor Green
+    foreach ($r in $officeGvlkReasons) {
+        if ($r -like "*\[INFO\]*") { Write-Host "      -> $r" -ForegroundColor DarkGray }
+    }
+}
+Write-Host ""
+
+# 4.15 Office DLL Digital Signature Verification
+Write-Host " [4.15] Kiểm tra chữ ký số các DLL quan trọng của Office..." -ForegroundColor Blue
+Write-Host "--------------------------------------------------------------------------------"
+$officeDllTampered = $false
+$officeDllReasons = @()
+
+# Các DLL quan trọng liên quan license và protection
+$officeDllTargets = @(
+    "$env:ProgramFiles\Microsoft Office\root\Office16\mso.dll",
+    "$env:ProgramFiles\Microsoft Office\root\Office16\mso30win32client.dll",
+    "$env:ProgramFiles\Microsoft Office\root\Office16\mso40uiwin32client.dll",
+    "$env:ProgramFiles\Microsoft Office\root\vfs\System\sppc.dll",
+    "${env:ProgramFiles(x86)}\Microsoft Office\root\Office16\mso.dll",
+    "${env:ProgramFiles(x86)}\Microsoft Office\root\vfs\System\sppc.dll"
+)
+
+foreach ($dllPath in $officeDllTargets) {
+    if (Test-Path $dllPath) {
+        $sig = Get-AuthenticodeSignature -FilePath $dllPath -ErrorAction SilentlyContinue
+        if ($sig) {
+            if ($sig.Status -eq "Valid" -and $sig.SignerCertificate.Subject -match "Microsoft") {
+                # Chữ ký hợp lệ và đúng là Microsoft → OK
+            } elseif ($sig.Status -eq "NotSigned") {
+                $officeDllTampered = $true
+                $officeDllReasons += "DLL KHÔNG có chữ ký số: $(Split-Path $dllPath -Leaf) tại $dllPath"
+            } elseif ($sig.Status -ne "Valid") {
+                $officeDllTampered = $true
+                $officeDllReasons += "Chữ ký số KHÔNG HỢP LỆ ($($sig.Status)): $(Split-Path $dllPath -Leaf) tại $dllPath"
+            } elseif ($sig.SignerCertificate.Subject -notmatch "Microsoft") {
+                $officeDllTampered = $true
+                $officeDllReasons += "DLL ký bởi tổ chức KHÔNG PHẢI Microsoft: '$($sig.SignerCertificate.Subject)' — $dllPath"
+            }
+        }
+    }
+}
+
+if ($officeDllTampered) {
+    Write-Host "   [!] Phát hiện DLL Office bị sửa đổi hoặc thiếu chữ ký số Microsoft!" -ForegroundColor Red
+    foreach ($r in $officeDllReasons) { Write-Host "      -> $r" -ForegroundColor Red }
+    $tamperDetected = $true
+} else {
+    Write-Host "   [+] Chữ ký số các DLL Office đã kiểm tra đều hợp lệ (Microsoft)." -ForegroundColor Green
+}
+Write-Host ""
+
+# 4.16 Suspicious .xrm-ms License File Injection
+Write-Host " [4.16] Kiểm tra tệp license Office bị cắm sẵn (.xrm-ms, tokens)..." -ForegroundColor Blue
+Write-Host "--------------------------------------------------------------------------------"
+$officeTokenTampered = $false
+$officeTokenReasons = @()
+
+$officeTokenDirs = @(
+    "$env:ProgramData\Microsoft\OfficeSoftwareProtectionPlatform",
+    "$env:ProgramData\Microsoft\OfficeSoftwareProtectionPlatform\Cache"
+)
+
+foreach ($tokenDir in $officeTokenDirs) {
+    if (Test-Path $tokenDir) {
+        # Kiểm tra file .xrm-ms (license blob inject)
+        $xrmFiles = Get-ChildItem -Path $tokenDir -Filter "*.xrm-ms" -Recurse -ErrorAction SilentlyContinue
+        foreach ($xrm in $xrmFiles) {
+            $officeTokenReasons += "[INFO] Phát hiện tệp license blob: $($xrm.FullName) (Tạo: $($xrm.CreationTime.ToString('dd/MM/yyyy HH:mm')))"
+            # Ngày tạo trước khi Office cài hoặc trong tương lai là bất thường
+            $ageDays = ((Get-Date) - $xrm.CreationTime).TotalDays
+            if ($xrm.CreationTime -gt (Get-Date)) {
+                $officeTokenTampered = $true
+                $officeTokenReasons += "   ↳ Ngày tạo trong TƯƠNG LAI — dấu hiệu giả mạo timestamp rõ ràng!"
+            }
+        }
+
+        # Kiểm tra tokens.dat — nếu tồn tại trong thư mục Cache (cấy sẵn từ máy khác)
+        $cachedTokens = Get-ChildItem -Path $tokenDir -Filter "tokens.dat" -Recurse -ErrorAction SilentlyContinue
+        foreach ($ct in $cachedTokens) {
+            $sizeMB = [math]::Round($ct.Length / 1KB, 1)
+            $officeTokenReasons += "[INFO] Phát hiện tokens.dat ($sizeMB KB) tại: $($ct.FullName) — Sửa lần cuối: $($ct.LastWriteTime.ToString('dd/MM/yyyy HH:mm'))"
+        }
+    }
+}
+
+if ($officeTokenTampered) {
+    Write-Host "   [!] Phát hiện tệp license Office bị cắm sẵn hoặc có timestamp bất thường!" -ForegroundColor Red
+    foreach ($r in $officeTokenReasons) {
+        if ($r -like "*\[INFO\]*") { Write-Host "      -> $r" -ForegroundColor DarkGray }
+        else { Write-Host "      -> $r" -ForegroundColor Red }
+    }
+    $tamperDetected = $true
+} elseif ($officeTokenReasons.Count -gt 0) {
+    Write-Host "   [~] Phát hiện tệp license token (cần kiểm tra thủ công nếu nghi ngờ):" -ForegroundColor Yellow
+    foreach ($r in $officeTokenReasons) { Write-Host "      -> $r" -ForegroundColor DarkGray }
+} else {
+    Write-Host "   [+] Không phát hiện tệp license Office inject bất thường." -ForegroundColor Green
+}
+Write-Host ""
+
+# 4.17 Office Scheduled Tasks liên quan KMS renewal (crack maintenance)
+Write-Host " [4.17] Kiểm tra tác vụ tự động gia hạn KMS Office (crack maintenance task)..." -ForegroundColor Blue
+Write-Host "--------------------------------------------------------------------------------"
+$officeTaskFound = $false
+$officeTaskReasons = @()
+
+$suspiciousOfficeTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+    # Task tên chứa từ khóa liên quan Office + activation/KMS
+    ($_.TaskName -match "Office|OSPP|OfficeSoftware") -and
+    ($_.TaskName -match "KMS|Activat|Renew|Auto|Pico|vlmcs|crack|bypass|patch")
+}
+
+if ($suspiciousOfficeTasks) {
+    foreach ($task in $suspiciousOfficeTasks) {
+        $officeTaskFound = $true
+        $actions = ($task.Actions | ForEach-Object { $_.Execute }) -join ", "
+        $officeTaskReasons += "Task: '$($task.TaskName)' (Path: $($task.TaskPath)) | Action: $actions"
+    }
+}
+
+# Cũng kiểm tra task có action gọi đến ospp.vbs, vlmcs, hoặc kms
+$allTasks = Get-ScheduledTask -ErrorAction SilentlyContinue
+foreach ($task in $allTasks) {
+    $taskAction = ($task.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join " "
+    if ($taskAction -match "ospp\.vbs.*inpkey|vlmcs|kmsauto|kmspico|autokms") {
+        if ($officeTaskReasons -notcontains "Task: '$($task.TaskName)'") {
+            $officeTaskFound = $true
+            $officeTaskReasons += "Task: '$($task.TaskName)' có action đáng ngờ: $taskAction"
+        }
+    }
+}
+
+if ($officeTaskFound) {
+    Write-Host "   [!] Phát hiện tác vụ tự động nghi vấn liên quan kích hoạt Office lậu!" -ForegroundColor Red
+    foreach ($r in $officeTaskReasons) { Write-Host "      -> $r" -ForegroundColor Red }
+    $tamperDetected = $true
+} else {
+    Write-Host "   [+] Không phát hiện tác vụ tự động gia hạn KMS Office lậu." -ForegroundColor Green
+}
+Write-Host ""
+
 # 5. FINAL ASSESSMENT
 Write-Host "[5] ĐÁNH GIÁ CHUNG HỆ THỐNG / FINAL ASSESSMENT" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 Write-Host " Báo cáo chi tiết các thành phần hệ thống:"
-
-# 5.1 Check domain join status
-$isDomainJoined = $false
-$compSystem = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
-if ($compSystem) {
-    $isDomainJoined = $compSystem.PartOfDomain
-}
 
 # 5.2 Render component statuses
 # Windows status
