@@ -352,22 +352,25 @@ if ($volumes) {
 Write-Host " [4.10] Kiểm tra trạng thái và can thiệp Windows Defender..."
 $defenderTampered = $false
 $defReasons = @()
+$defenderPresent = $false   # True nếu Defender tồn tại dưới bất kỳ hình thức nào
 
-# Check Defender Service
-$defService = Get-Service -Name WinDefender -ErrorAction SilentlyContinue
+# ── Bước 1: Kiểm tra service WinDefend (tên đúng) ─────────────────────────
+$defService = Get-Service -Name "WinDefend" -ErrorAction SilentlyContinue
 if ($defService) {
+    $defenderPresent = $true
     if ($defService.Status -ne "Running") {
         $defenderTampered = $true
-        $defReasons += "Dịch vụ WinDefender đang ở trạng thái: $($defService.Status) (Yêu cầu: Running)"
+        $defReasons += "Dịch vụ WinDefend đang ở trạng thái: $($defService.Status) (Yêu cầu: Running)"
     }
 } else {
-    $defenderTampered = $true
-    $defReasons += "Không tìm thấy dịch vụ WinDefender trên hệ thống!"
+    # WinDefend không có → có thể đã bị xóa hoàn toàn hoặc chưa cài
+    $defReasons += "Không tìm thấy dịch vụ WinDefend trên hệ thống."
 }
 
-# Check MpComputerStatus (Real-Time Protection)
+# ── Bước 2: Kiểm tra Get-MpComputerStatus (Defender AMSI provider) ─────────
 $mp = Get-MpComputerStatus -ErrorAction SilentlyContinue
 if ($mp) {
+    $defenderPresent = $true
     if (-not $mp.RealTimeProtectionEnabled) {
         $defenderTampered = $true
         $defReasons += "Bảo vệ thời gian thực (Real-Time Protection) đang bị TẮT"
@@ -376,12 +379,42 @@ if ($mp) {
         $defenderTampered = $true
         $defReasons += "Bảo vệ diệt virus (Antivirus Enabled) đang bị TẮT"
     }
+    if ($mp.AMServiceEnabled -eq $false) {
+        $defenderTampered = $true
+        $defReasons += "Dịch vụ chống phần mềm độc hại (AM Service) đang bị TẮT"
+    }
 } else {
-    $defenderTampered = $true
-    $defReasons += "Không thể kết nối đến trình quản lý trạng thái Windows Defender (MpComputerStatus)"
+    # Fallback: kiểm tra qua SecurityCenter2 WMI — hoạt động kể cả khi
+    # Defender ở chế độ Passive (có third-party AV) hoặc WMI namespace bị giới hạn quyền
+    $scAV = Get-CimInstance -Namespace "root\SecurityCenter2" -ClassName "AntiVirusProduct" -ErrorAction SilentlyContinue
+    if ($scAV) {
+        $defenderPresent = $true
+        $defenderScProduct = $scAV | Where-Object { $_.displayName -like "*Windows Defender*" -or $_.displayName -like "*Microsoft Defender*" }
+        if ($defenderScProduct) {
+            # productState: bit 12-19 encode enable/disable, bit 4-11 encode update status
+            # 0x1000 (4096) = enabled bit mask; 0x10 (16) = real-time protection on
+            $productState = $defenderScProduct | Select-Object -First 1 -ExpandProperty productState
+            $rtpOn = ($productState -band 0x1000) -ne 0
+            if (-not $rtpOn) {
+                $defenderTampered = $true
+                $defReasons += "Windows Defender được phát hiện qua SecurityCenter2 nhưng bảo vệ thời gian thực có thể TẮT (productState: 0x$('{0:X}' -f $productState))"
+            } else {
+                # Defender OK theo SecurityCenter2 — không báo tamper
+                $defReasons += "[INFO] Defender phát hiện qua SecurityCenter2 (chế độ Passive/coexist với AV khác có thể là nguyên nhân Get-MpComputerStatus không phản hồi)"
+            }
+        } else {
+            # Có AV khác nhưng không có Defender → không phải tamper, chỉ ghi nhận
+            $defenderPresent = $true   # AV khác thay thế Defender — hợp lệ
+            $defReasons += "[INFO] Windows Defender không được kích hoạt vì đã có phần mềm diệt virus khác: $(($scAV | Select-Object -ExpandProperty displayName) -join ', ')"
+        }
+    } else {
+        # Không có gì cả → thực sự đáng ngờ
+        $defenderTampered = $true
+        $defReasons += "Không thể truy vấn trạng thái Defender qua Get-MpComputerStatus và SecurityCenter2 WMI. Defender có thể đã bị vô hiệu hóa hoàn toàn."
+    }
 }
 
-# Check Policies Registry (DisableAntiSpyware GPO)
+# ── Bước 3: Kiểm tra Policy Registry DisableAntiSpyware ───────────────────
 $gpoDefPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender"
 if (Test-Path $gpoDefPath) {
     $gpoKeys = Get-ItemProperty -Path $gpoDefPath -ErrorAction SilentlyContinue
@@ -391,14 +424,24 @@ if (Test-Path $gpoDefPath) {
     }
 }
 
+# ── Hiển thị kết quả ────────────────────────────────────────────────────────
 if ($defenderTampered) {
     Write-Host "   [!] Phát hiện can thiệp hoặc Windows Defender bị tắt không an toàn!" -ForegroundColor Red
     foreach ($reason in $defReasons) {
-        Write-Host "      -> $reason" -ForegroundColor Red
+        if ($reason -like "*\[INFO\]*") {
+            Write-Host "      -> $reason" -ForegroundColor DarkGray
+        } else {
+            Write-Host "      -> $reason" -ForegroundColor Red
+        }
     }
     $tamperDetected = $true
 } else {
     Write-Host "   [+] Windows Defender đang hoạt động bình thường, bảo vệ thời gian thực BẬT." -ForegroundColor Green
+    foreach ($reason in $defReasons) {
+        if ($reason -like "*\[INFO\]*") {
+            Write-Host "      -> $reason" -ForegroundColor DarkGray
+        }
+    }
 }
 
 # 4.11 Check for Adobe & Autodesk CAD Cracks

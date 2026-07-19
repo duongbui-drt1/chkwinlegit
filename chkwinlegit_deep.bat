@@ -428,20 +428,95 @@ Write-Host ""
 Write-Host "[4] KẾT LUẬN GIAI ĐOẠN 2" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 
-if ($foundEvasiveFiles.Count -gt 0 -or $portTamperDetected -or $secTamper) {
+if ($detectedCrackFiles.Count -gt 0 -or $portTamperDetected -or $secTamper) {
     Write-Host " ========================================================================" -ForegroundColor Red
-    Write-Host "    KẾT QUẢ QUET SÂU: PHÁT HIỆN LỖ HỔNG & CAN THIỆP PHẦN MỀM LẬU" -ForegroundColor Red
+    Write-Host "    KẾT QUẢ QUÉT SÂU: PHÁT HIỆN LỖ HỔNG & CAN THIỆP PHẦN MỀM LẬU" -ForegroundColor Red
     Write-Host " ========================================================================" -ForegroundColor Red
-    if ($foundEvasiveFiles.Count -gt 0) { Write-Host "  * Phát hiện tệp tin chứa từ khóa crack hoặc né check trên hệ thống." -ForegroundColor Red }
+    if ($detectedCrackFiles.Count -gt 0) { Write-Host "  * Phát hiện $($detectedCrackFiles.Count) tệp tin crack/trái phép được xác định trên hệ thống." -ForegroundColor Red }
     if ($portTamperDetected) { Write-Host "  * Phát hiện kết nối/cổng mạng hoặc DNS Cache bị can thiệp để chạy KMS lậu." -ForegroundColor Red }
     if ($secTamper) { Write-Host "  * Hệ thống bị suy giảm bảo mật nghiêm trọng (UAC/Windows Update bị tắt, Test Signing bật)." -ForegroundColor Red }
 } else {
     Write-Host " ========================================================================" -ForegroundColor Green
     Write-Host "    KẾT QUẢ QUÉT SÂU: HỆ THỐNG AN TOÀN & SẠCH (SECURE & CLEAN)" -ForegroundColor Green
     Write-Host " ========================================================================" -ForegroundColor Green
-    Write-Host "  * Không tìm thấy tệp tin crack né check nào trong các thư mục quan trọng." -ForegroundColor Green
+    Write-Host "  * Không xác định được tệp tin crack/trái phép nào trong các thư mục quan trọng." -ForegroundColor Green
     Write-Host "  * Không phát hiện can thiệp cổng mạng KMS hoặc DNS Cache giả lập." -ForegroundColor Green
     Write-Host "  * Các thiết lập UAC, Windows Update và chữ ký driver hoạt động an toàn." -ForegroundColor Green
+}
+
+# ── GIAI ĐOẠN GỠ BỎ: XÓA FILE CRACK / TRÁI PHÉP ────────────────────────────
+Write-Host ""
+Write-Host "[5] GỠ BỎ TỆP TIN CRACK / TRÁI PHÉP" -ForegroundColor Blue
+Write-Host "--------------------------------------------------------------------------------"
+
+if ($detectedCrackFiles.Count -eq 0) {
+    Write-Host " [+] Không có tệp tin crack/trái phép nào cần xóa." -ForegroundColor Green
+} else {
+    Write-Host " [!] Danh sách tệp tin crack/trái phép phát hiện:" -ForegroundColor Red
+    $i = 1
+    foreach ($f in $detectedCrackFiles) {
+        Write-Host "   [$i] $f" -ForegroundColor Yellow
+        $i++
+    }
+    Write-Host ""
+    Write-Host " ╔══════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Red
+    Write-Host " ║  CẢNH BÁO: Hành động xóa là KHÔNG THỂ HOÀN TÁC. Hãy chắc chắn trước  ║" -ForegroundColor Red
+    Write-Host " ║  khi xác nhận! Bạn có muốn XÓA VĨNH VIỄN $($detectedCrackFiles.Count) tệp tin trên không?   ║" -ForegroundColor Red
+    Write-Host " ╚══════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Red
+    Write-Host ""
+
+    # Prompt y/n — dùng Read-Host để hoạt động đúng kể cả khi chạy qua cmd.exe
+    $choiceChar = ""
+    do {
+        Write-Host " Nhập lựa chọn của bạn [y = XÓA / n = BỎ QUA]: " -ForegroundColor Cyan -NoNewline
+        $raw = (Read-Host).Trim().ToLower()
+        if ($raw -eq "y" -or $raw -eq "n") { $choiceChar = $raw }
+        else { Write-Host " Vui lòng chỉ nhập 'y' hoặc 'n'." -ForegroundColor Yellow }
+    } while ($choiceChar -eq "")
+
+    Write-Host ""
+
+    if ($choiceChar -eq "y") {
+        Write-Host " Đang tiến hành xóa..." -ForegroundColor Yellow
+        Write-Host ""
+        $deletedCount  = 0
+        $failedCount   = 0
+        $failedFiles   = @()
+
+        foreach ($filePath in $detectedCrackFiles) {
+            try {
+                if (Test-Path $filePath) {
+                    Remove-Item -LiteralPath $filePath -Force -ErrorAction Stop
+                    Write-Host "   [OK] Đã xóa: $filePath" -ForegroundColor Green
+                    $deletedCount++
+                } else {
+                    Write-Host "   [--] Tệp không còn tồn tại (đã được xóa trước đó): $filePath" -ForegroundColor DarkGray
+                }
+            } catch {
+                Write-Host "   [X]  Không thể xóa: $filePath" -ForegroundColor Red
+                Write-Host "        Lý do: $($_.Exception.Message)" -ForegroundColor DarkRed
+                $failedCount++
+                $failedFiles += $filePath
+            }
+        }
+
+        Write-Host ""
+        Write-Host " ────────────────────────────────────────────────────────────────────────" -ForegroundColor Cyan
+        Write-Host " KẾT QUẢ XÓA:" -ForegroundColor Cyan
+        Write-Host "   Đã xóa thành công : $deletedCount tệp" -ForegroundColor Green
+        if ($failedCount -gt 0) {
+            Write-Host "   Không xóa được    : $failedCount tệp (thiếu quyền hoặc tệp đang bị khóa)" -ForegroundColor Red
+            foreach ($ff in $failedFiles) {
+                Write-Host "     -> $ff" -ForegroundColor Red
+            }
+            Write-Host ""
+            Write-Host "   GỢI Ý: Thử khởi động lại máy tính rồi chạy lại công cụ với quyền" -ForegroundColor Yellow
+            Write-Host "   Administrator, hoặc xóa thủ công trong Safe Mode." -ForegroundColor Yellow
+        }
+        Write-Host " ────────────────────────────────────────────────────────────────────────" -ForegroundColor Cyan
+    } else {
+        Write-Host " [--] Bỏ qua. Không có tệp tin nào bị xóa." -ForegroundColor DarkGray
+    }
 }
 
 Write-Host ""
