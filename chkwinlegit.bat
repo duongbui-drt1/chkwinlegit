@@ -110,8 +110,64 @@ Write-Host ""
 Write-Host "[3] TRẠNG THÁI BẢN QUYỀN MICROSOFT OFFICE" -ForegroundColor Blue
 Write-Host "--------------------------------------------------------------------------------"
 
-$programFiles = [Environment]::GetFolderPath("ProgramFiles")
+$programFiles   = [Environment]::GetFolderPath("ProgramFiles")
 $programFilesX86 = [Environment]::GetFolderPath("ProgramFilesX86")
+
+# ── 3.1 Detect Click-to-Run (C2R) subscription via registry ─────────────────
+$c2rConfigPath  = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
+$isC2RInstall   = Test-Path $c2rConfigPath
+$c2rProductIds  = ""
+$c2rPlatform    = ""
+$isM365Sub      = $false   # True nếu là bản subscription O365/M365
+
+if ($isC2RInstall) {
+    $c2rConfig   = Get-ItemProperty -Path $c2rConfigPath -ErrorAction SilentlyContinue
+    $c2rProductIds = $c2rConfig.ProductReleaseIds
+    $c2rPlatform   = $c2rConfig.Platform
+    # Subscription products chứa "O365" hoặc "M365" trong ProductReleaseIds
+    if ($c2rProductIds -match "O365|M365|HomePrem|Business|ProPlus.*Retail") {
+        $isM365Sub = $true
+    }
+}
+
+# ── 3.2 Detect signed-in Microsoft account (Identity) ───────────────────────
+$linkedAccount = ""
+$identityKey   = "HKCU:\Software\Microsoft\Office\16.0\Common\Identity"
+if (Test-Path $identityKey) {
+    $idProps = Get-ItemProperty -Path $identityKey -ErrorAction SilentlyContinue
+    if ($idProps.SignedInADUserObjectId -or $idProps.ADUserObjectId) {
+        # Domain / Entra ID account
+        $linkedAccount = $idProps.SignedInADUserObjectId
+    }
+}
+# Fallback: check identity store for MSA/AAD email
+$identityStoreKey = "HKCU:\Software\Microsoft\Office\16.0\Common\Identity\Identities"
+if ($linkedAccount -eq "" -and (Test-Path $identityStoreKey)) {
+    $ids = Get-ChildItem -Path $identityStoreKey -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($ids) {
+        $idDetail = Get-ItemProperty -Path $ids.PSPath -ErrorAction SilentlyContinue
+        if ($idDetail.EmailAddress) { $linkedAccount = $idDetail.EmailAddress }
+        elseif ($idDetail.FriendlyName) { $linkedAccount = $idDetail.FriendlyName }
+    }
+}
+
+# Display C2R / subscription summary
+if ($isC2RInstall) {
+    Write-Host " * Loại cài đặt   : Click-to-Run (C2R)" -ForegroundColor Cyan
+    if ($c2rProductIds) {
+        Write-Host " * Sản phẩm C2R   : $c2rProductIds" -ForegroundColor Cyan
+    }
+    if ($isM365Sub) {
+        Write-Host " * Loại bản quyền : Microsoft 365 / Office 365 (Subscription - tài khoản)" -ForegroundColor Cyan
+        if ($linkedAccount -ne "") {
+            Write-Host " * Tài khoản liên kết: $linkedAccount" -ForegroundColor Green
+        } else {
+            Write-Host " * Tài khoản liên kết: (Không đọc được - thử kiểm tra trong ứng dụng Office)" -ForegroundColor Yellow
+        }
+    }
+}
+
+# ── 3.3 Parse OSPP.vbs output ────────────────────────────────────────────────
 $osppPaths = @()
 if (Test-Path "$programFiles\Microsoft Office") {
     $osppPaths += Get-ChildItem -Path "$programFiles\Microsoft Office" -Filter "ospp.vbs" -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
@@ -119,28 +175,89 @@ if (Test-Path "$programFiles\Microsoft Office") {
 if (Test-Path "$programFilesX86\Microsoft Office") {
     $osppPaths += Get-ChildItem -Path "$programFilesX86\Microsoft Office" -Filter "ospp.vbs" -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
 }
-
 $osppPaths = $osppPaths | Select-Object -Unique
 
 if ($osppPaths.Count -eq 0) {
     Write-Host " * Không tìm thấy cài đặt Office truyền thống (Click-to-Run hoặc UWP)." -ForegroundColor Yellow
 } else {
     foreach ($osppPath in $osppPaths) {
-        Write-Host " * Tìm thấy OSPP.vbs tại: $osppPath"
+        Write-Host ""
+        Write-Host " * Chi tiết OSPP (OSPP.vbs /dstatus):" -ForegroundColor Cyan
+
         $osppOutput = cscript //nologo "$osppPath" /dstatus 2>$null
-        $relevantLines = $osppOutput | Where-Object { $_ -match "LICENSE STATUS:|LICENSE NAME:|PRODUCT ID:|Description:|KEY:" }
-        if ($relevantLines) {
-            foreach ($line in $relevantLines) {
-                if ($line -match "LICENSED") {
-                    Write-Host "   $($line.Trim())" -ForegroundColor Green
-                } elseif ($line -match "NOT LICENSED") {
-                    Write-Host "   $($line.Trim())" -ForegroundColor Red
-                } else {
-                    Write-Host "   $($line.Trim())"
-                }
+
+        # Parse từng block sản phẩm
+        $currentName   = ""
+        $currentStatus = ""
+        $currentDesc   = ""
+
+        foreach ($line in $osppOutput) {
+            $trimmed = $line.Trim()
+            if ($trimmed -eq "") { continue }
+
+            if ($trimmed -match "^LICENSE NAME:\s*(.+)$") {
+                $currentName = $Matches[1].Trim()
             }
-        } else {
-            Write-Host "   Không trích xuất được thông tin bản quyền từ OSPP.vbs." -ForegroundColor Yellow
+            elseif ($trimmed -match "^LICENSE STATUS:\s*---(.+)---") {
+                $currentStatus = $Matches[1].Trim()
+            }
+            elseif ($trimmed -match "^LICENSE DESCRIPTION:\s*(.+)$") {
+                $currentDesc = $Matches[1].Trim()
+            }
+
+            # Hiển thị dòng thông tin cơ bản (PRODUCT ID, KEY)
+            if ($trimmed -match "^(PRODUCT ID|Last 5 characters):") {
+                Write-Host "   $trimmed" -ForegroundColor DarkGray
+                continue
+            }
+
+            # Hiển thị LICENSE NAME
+            if ($trimmed -match "^LICENSE NAME:") {
+                Write-Host "   $trimmed" -ForegroundColor White
+                continue
+            }
+
+            # Hiển thị LICENSE STATUS với màu sắc ngữ nghĩa
+            if ($trimmed -match "^LICENSE STATUS:") {
+                $isSubProduct = ($currentName -match "O365|M365|HomePrem|365")
+                
+                if ($currentStatus -eq "LICENSED") {
+                    Write-Host "   $trimmed" -ForegroundColor Green
+                }
+                elseif ($currentStatus -eq "OOB_GRACE") {
+                    if ($isM365Sub -and $isSubProduct) {
+                        # OOB_GRACE trên bản subscription là bình thường — license được kiểm tra online qua tài khoản
+                        Write-Host "   $trimmed" -ForegroundColor Cyan
+                        Write-Host "      [i] Trạng thái OOB_GRACE với sản phẩm M365/O365 là bình thường." -ForegroundColor Cyan
+                        Write-Host "          Bản quyền được xác thực qua tài khoản Microsoft online, không qua SPP cục bộ." -ForegroundColor DarkGray
+                    } else {
+                        Write-Host "   $trimmed" -ForegroundColor Yellow
+                        Write-Host "      [!] Đang trong thời gian dùng thử/ân hạn." -ForegroundColor Yellow
+                    }
+                }
+                elseif ($currentStatus -eq "NOTIFICATIONS") {
+                    if ($isM365Sub -and $isSubProduct -and $linkedAccount -ne "") {
+                        # Có account liên kết → có thể subscription đang chờ xác thực lại
+                        Write-Host "   $trimmed" -ForegroundColor Yellow
+                        Write-Host "      [!] Subscription cần đăng nhập lại hoặc gia hạn. Tài khoản: $linkedAccount" -ForegroundColor Yellow
+                    } else {
+                        Write-Host "   $trimmed" -ForegroundColor Red
+                        Write-Host "      [!] Hết hạn dùng thử / chưa kích hoạt." -ForegroundColor Red
+                    }
+                }
+                elseif ($currentStatus -eq "NOT_LICENSED" -or $currentStatus -eq "UNLICENSED") {
+                    Write-Host "   $trimmed" -ForegroundColor Red
+                }
+                else {
+                    Write-Host "   $trimmed" -ForegroundColor Yellow
+                }
+                continue
+            }
+
+            # Hiển thị các dòng còn lại mờ hơn
+            if ($trimmed -match "^(LICENSE DESCRIPTION|ERROR DESCRIPTION):") {
+                Write-Host "   $trimmed" -ForegroundColor DarkGray
+            }
         }
     }
 }
@@ -614,6 +731,10 @@ if ($ohookDetected) {
     Write-Host "PHÁT HIỆN CRACK (Bypass Ohook sppc.dll)" -ForegroundColor Red
 } elseif ($officeKms -or $officeGuidKms) {
     Write-Host "PHÁT HIỆN CAN THIỆP (KMS Redirect)" -ForegroundColor Red
+} elseif ($isM365Sub -and $linkedAccount -ne "") {
+    Write-Host "SUBSCRIPTION HỢP LỆ (M365 - Tài khoản: $linkedAccount)" -ForegroundColor Green
+} elseif ($isM365Sub) {
+    Write-Host "SUBSCRIPTION M365/O365 (Xem chi tiết mục [3] - cần đăng nhập tài khoản)" -ForegroundColor Cyan
 } elseif ($osppPaths.Count -gt 0) {
     Write-Host "ĐÃ CÀI ĐẶT (Cần xem chi tiết trạng thái ở mục [3])" -ForegroundColor Cyan
 } else {
